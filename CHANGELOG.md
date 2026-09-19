@@ -2,6 +2,11 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.9 - 2026-09-19
+
+- An install is no longer mistaken for a crash: rolling back needs repeated restarts
+  outside an install, and the display gets long enough to stop.
+
 ## 1.0.8 - 2026-09-19
 
 - Memory and priority limits per service: the display, an update or a plugin can no

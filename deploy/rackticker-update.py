@@ -144,6 +144,14 @@ def heal():
 
 def rollback():
     """The display keeps crashing: run the previous version instead, once."""
+    if Path("/run/rackticker-install/busy").exists() or (ROOT / "staging").is_dir():
+        print("an install is running: not a crash")
+        return
+    restarts = subprocess.run(["systemctl", "show", "rackticker", "-p", "NRestarts", "--value"],
+                              capture_output=True, text=True).stdout.strip()
+    if restarts.isdigit() and int(restarts) < 3:
+        print(f"only {restarts} restarts: leaving it alone")
+        return
     current, previous = ROOT / "current", ROOT / "previous"
     if not previous.is_dir() or intact(previous) is False:
         status("error", "RackTicker keeps stopping and there is no earlier version to go back to", True)

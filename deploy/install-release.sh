@@ -46,7 +46,11 @@ if [[ "${swap_kb:-0}" -lt 200000 && -f /etc/dphys-swapfile ]]; then
   dphys-swapfile setup >/dev/null 2>&1 && dphys-swapfile swapon >/dev/null 2>&1 || true
 fi
 say "pausing the display while the new version is prepared"
+# While this marker exists, a failed display service is this install, not a crash.
+mkdir -p /run/rackticker-install && touch /run/rackticker-install/busy
+trap 'rm -rf /run/rackticker-install' EXIT
 systemctl stop rackticker || true
+systemctl reset-failed rackticker 2>/dev/null || true
 
 say "checking the code compiles"
 "$venv" -m compileall -q "$root/staging/app" "$root/staging/rackticker" "$root/staging/plugins" >/dev/null
@@ -71,7 +75,8 @@ fi
 ( cd "$root/staging" && find . -type f ! -path '*/__pycache__/*' ! -name MANIFEST -print0 | sort -z \
     | xargs -0 sha256sum > MANIFEST )
 
-"$venv" -m pip install -q --no-deps --force-reinstall "$root/staging"
+"$venv" -m pip uninstall -y -q rackticker 2>/dev/null || true
+"$venv" -m pip install -q --no-deps "$root/staging"
 install -d -o rackticker -g rackticker -m 0700 /var/lib/rackticker/plugins /var/lib/rackticker/plugin-data \
   /var/lib/rackticker/update
 if [[ ! -f /var/lib/rackticker/config.json ]]; then

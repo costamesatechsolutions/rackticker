@@ -52,6 +52,15 @@ def logo_image(png):
         return None
 
 
+ARROW = ">"
+
+
+def _fit_tiny(text, width):
+    while text and tiny_width(text) > width:
+        text = text[:-1].rstrip()
+    return text
+
+
 def _fit(text, width, scale=1, lower=False):
     while text and text_width(text, scale, lower) > width:
         text = text[:-1].rstrip()
@@ -200,8 +209,18 @@ class FlightModule(Module):
             for dx, dy in PLANE:
                 card.putpixel((x + dx, 14 + dy), AMBER)
             draw_text(card, destination, x + 10, 9, WHITE, 2, True)
-            text, color = self._fact(row, t)
-            draw_text(card, text, INFO_X, 25, color)
+            # Everything at once underneath: the cities in full, and how long is left.
+            cities = [city.upper() for city in row.get("cities") or []]
+            line = f"{cities[0]} {ARROW} {cities[1]}" if len(cities) == 2 else where(row)
+            left = row.get("minutes_left")
+            extra = (f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}") \
+                if left is not None and left < 900 else (row.get("type") or "")
+            room = INFO_WIDTH
+            if extra and tiny_width(line) + 5 + tiny_width(extra) <= INFO_WIDTH:
+                draw_tiny(card, extra, 128 - tiny_width(extra), 26, AMBER)   # beside the cities
+            elif extra and text_width(title, 1, lower) + 4 + tiny_width(extra) <= INFO_WIDTH:
+                draw_tiny(card, extra, 128 - tiny_width(extra), 1, AMBER)    # up by the flight number
+            draw_tiny(card, _fit_tiny(line, room), INFO_X, 26, WHITE if len(cities) == 2 else GREEN)
         else:
             # No published route (private and military flights): the aircraft is the story.
             label = mixed(type_name(kind, long=False)) or "Aircraft"

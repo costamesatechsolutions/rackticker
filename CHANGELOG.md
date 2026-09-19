@@ -2,6 +2,11 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.6 - 2026-09-19
+
+- Flights: one still card with the airline, the big route, both cities in full and
+  the time left. Nothing cycles.
+
 ## 1.0.5 - 2026-09-19
 
 - Night brightness: near-black backgrounds and unlit TIX cells stay dark instead of glowing.

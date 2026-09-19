@@ -31,6 +31,18 @@ class InstallError(ValueError):
     pass
 
 
+async def read_limited(response, limit):
+    """The whole body, up to `limit` bytes. `content.read(n)` returns only what has
+    arrived so far, which on a slow link was a truncated zip."""
+    chunks, size = [], 0
+    async for chunk in response.content.iter_chunked(64 * 1024):
+        chunks.append(chunk)
+        size += len(chunk)
+        if size >= limit:
+            break
+    return b"".join(chunks)[:limit]
+
+
 def parse_github(url):
     """(owner, repo, ref or None, folder inside the repository) from a GitHub link.
 
@@ -113,7 +125,7 @@ class Installer:
         async with session.get(f"https://codeload.github.com/{owner}/{repo}/zip/{commit}",
                                headers=USER_AGENT) as response:
             response.raise_for_status()
-            data = await response.content.read(MAX_ZIP_BYTES + 1)
+            data = await read_limited(response, MAX_ZIP_BYTES + 1)
         if len(data) > MAX_ZIP_BYTES:
             raise InstallError("That repository is too large to install as a plugin")
         link = f"https://github.com/{owner}/{repo}" + (f"/tree/{ref}/{folder}" if folder else f"/tree/{ref}")

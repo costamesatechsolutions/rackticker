@@ -67,6 +67,16 @@ def prepare_art(raw):
     return tile.tobytes(), accent
 
 
+async def read_all(response, limit):
+    """The whole body up to `limit` bytes (`content.read(n)` stops at what has arrived)."""
+    data = bytearray()
+    async for chunk in response.content.iter_chunked(64 * 1024):
+        data += chunk
+        if len(data) >= limit:
+            break
+    return bytes(data[:limit])
+
+
 class Spotify:
     def __init__(self, session):
         self.session = session
@@ -221,7 +231,7 @@ class Player(Provider):
             try:
                 async with self.session.get(url, headers=headers) as response:
                     response.raise_for_status()
-                    self.art = {url: await offload(prepare_art, await response.content.read(2_000_000))}
+                    self.art = {url: await offload(prepare_art, await read_all(response, 2_000_000))}
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError) as exc:
                 print(f"album art: {exc}")
                 self.art = {url: (None, None)}

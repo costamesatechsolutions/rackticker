@@ -161,3 +161,17 @@ class RetiredScreenTests(unittest.TestCase):
                                                {"id": "clock-1", "module": "clock", "duration": 8}]})
         self.assertNotIn("iracing", config["modules"])
         self.assertEqual([entry["module"] for entry in config["playlist"]], ["clock"])
+
+
+class DownloadTests(unittest.IsolatedAsyncioTestCase):
+    async def test_read_limited_waits_for_the_whole_body(self):
+        from app.core.installer import read_limited
+
+        class Slow:  # a body that arrives in pieces, as it does over Wi-Fi
+            class content:
+                @staticmethod
+                async def iter_chunked(size):
+                    for piece in (b"PK", b"\x03\x04", b"rest"):
+                        yield piece
+        self.assertEqual(await read_limited(Slow, 100), b"PK\x03\x04rest")
+        self.assertEqual(await read_limited(Slow, 3), b"PK\x03")

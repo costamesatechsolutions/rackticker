@@ -2,6 +2,12 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.7 - 2026-09-19
+
+- Installing no longer risks running a 512 MB Pi out of memory: the display pauses
+  during the work, the panel companion compiles gently, and the Pi gets swap.
+- Flights: the aircraft type shows beside the destination when both will not fit.
+
 ## 1.0.6 - 2026-09-19
 
 - Flights: one still card with the airline, the big route, both cities in full and

@@ -37,6 +37,17 @@ fi
 echo "$revision" > "$root/staging/REVISION"
 chown -R root:root "$root/staging"
 
+# A Pi 3A+ has 512 MB. Compiling and installing while everything else runs has run it
+# out of memory, taking the web page and ssh with it. Make room first, and be gentle.
+swap_kb="$(awk '/SwapTotal/ {print $2}' /proc/meminfo)"
+if [[ "${swap_kb:-0}" -lt 200000 && -f /etc/dphys-swapfile ]]; then
+  say "giving the Pi 512 MB of swap"
+  sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=512/' /etc/dphys-swapfile
+  dphys-swapfile setup >/dev/null 2>&1 && dphys-swapfile swapon >/dev/null 2>&1 || true
+fi
+say "pausing the display while the new version is prepared"
+systemctl stop rackticker || true
+
 say "checking the code compiles"
 "$venv" -m compileall -q "$root/staging/app" "$root/staging/rackticker" "$root/staging/plugins" >/dev/null
 
@@ -51,7 +62,7 @@ if [[ ! -x /usr/local/bin/rackticker-hub75d ]] || \
    ! cmp -s "$root/staging/deploy/hub75-daemon.cpp" "$root/current/deploy/hub75-daemon.cpp" 2>/dev/null; then
   [[ -f /opt/rpi-rgb-led-matrix/lib/librgbmatrix.a ]] || { echo "rpi-rgb-led-matrix is missing" >&2; exit 1; }
   say "building the panel companion"
-  g++ -O3 -std=c++17 -I/opt/rpi-rgb-led-matrix/include "$root/staging/deploy/hub75-daemon.cpp" \
+  nice -n 19 ionice -c3 g++ -O2 -std=c++17 --param ggc-min-expand=20 -I/opt/rpi-rgb-led-matrix/include "$root/staging/deploy/hub75-daemon.cpp" \
     -o /usr/local/bin/rackticker-hub75d.new -L/opt/rpi-rgb-led-matrix/lib -lrgbmatrix -lrt -lm -lpthread
   matrix_changed=1
 fi
@@ -104,7 +115,6 @@ switch_in() {  # $1: release folder to make current; units come from it
 }
 
 say "switching to $revision"
-systemctl stop rackticker
 rm -rf "$root/previous"
 [[ -d "$root/current" ]] && mv "$root/current" "$root/previous"
 mv "$root/staging" "$root/current"

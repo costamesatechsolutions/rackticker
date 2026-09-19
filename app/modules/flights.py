@@ -213,13 +213,25 @@ class FlightModule(Module):
             cities = [city.upper() for city in row.get("cities") or []]
             line = f"{cities[0]} {ARROW} {cities[1]}" if len(cities) == 2 else where(row)
             left = row.get("minutes_left")
-            extra = (f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}") \
-                if left is not None and left < 900 else (row.get("type") or "")
+            # The aircraft goes beside the cities; the time left sits by the flight number.
+            plane = type_name(row["type"], long=False) if row.get("type") else ""
+            clock = "" if left is None or left >= 900 else (f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}")
             room = INFO_WIDTH
-            if extra and tiny_width(line) + 5 + tiny_width(extra) <= INFO_WIDTH:
-                draw_tiny(card, extra, 128 - tiny_width(extra), 26, AMBER)   # beside the cities
-            elif extra and text_width(title, 1, lower) + 4 + tiny_width(extra) <= INFO_WIDTH:
-                draw_tiny(card, extra, 128 - tiny_width(extra), 1, AMBER)    # up by the flight number
+            # The big codes already say from and to, so when the aircraft will not fit
+            # beside both cities, name the city it is heading for.
+            if plane and len(cities) == 2 and tiny_width(line) + 5 + tiny_width(plane) > INFO_WIDTH:
+                shorter = f"{ARROW} {cities[1]}"
+                if tiny_width(shorter) + 5 + tiny_width(plane) <= INFO_WIDTH:
+                    line = shorter
+            if plane and tiny_width(line) + 5 + tiny_width(plane) <= INFO_WIDTH:
+                draw_tiny(card, plane, 128 - tiny_width(plane), 26, AMBER)
+                room = INFO_WIDTH - tiny_width(plane) - 5
+            elif clock and tiny_width(line) + 5 + tiny_width(clock) <= INFO_WIDTH:
+                draw_tiny(card, clock, 128 - tiny_width(clock), 26, AMBER)
+                room = INFO_WIDTH - tiny_width(clock) - 5
+                clock = ""
+            if clock and text_width(title, 1, lower) + 4 + tiny_width(clock) <= INFO_WIDTH:
+                draw_tiny(card, clock, 128 - tiny_width(clock), 1, AMBER)
             draw_tiny(card, _fit_tiny(line, room), INFO_X, 26, WHITE if len(cities) == 2 else GREEN)
         else:
             # No published route (private and military flights): the aircraft is the story.

@@ -46,3 +46,15 @@ class KeeperDecisions(unittest.TestCase):
         self.assertFalse(KEEPER.usable("10.42.0.1"))
         self.assertFalse(KEEPER.usable("169.254.3.4"))
         self.assertTrue(KEEPER.usable("192.168.4.170"))
+
+
+class UnitTests(unittest.TestCase):
+    def test_no_two_services_share_a_runtime_directory(self):
+        """systemd re-owns a RuntimeDirectory when its unit starts: sharing one cost the
+        display its permission to reach the panel."""
+        import re
+        seen = {}
+        for unit in (Path(__file__).resolve().parents[1] / "deploy").glob("*.service"):
+            for name in re.findall(r"^RuntimeDirectory=(\S+)", unit.read_text(), re.MULTILINE):
+                self.assertNotIn(name, seen, f"{unit.name} and {seen.get(name)} share /run/{name}")
+                seen[name] = unit.name

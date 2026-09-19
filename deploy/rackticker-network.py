@@ -33,7 +33,7 @@ from urllib.parse import parse_qs
 
 HOTSPOT = "RackTicker-Setup"
 AP_IP = "10.42.0.1"
-STATE = Path("/run/rackticker/network.json")
+STATE = Path("/run/rackticker-network/network.json")
 DNS_CONF = Path("/etc/NetworkManager/dnsmasq-shared.d/rackticker-portal.conf")
 BOOT_GRACE = 90          # seconds after start before setup opens when nothing is saved
 DROP_GRACE = 300         # seconds offline before setup opens when a network is saved

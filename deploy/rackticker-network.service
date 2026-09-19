@@ -8,7 +8,7 @@ Type=simple
 ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-network.py
 Restart=always
 RestartSec=10
-RuntimeDirectory=rackticker
+RuntimeDirectory=rackticker-network
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 

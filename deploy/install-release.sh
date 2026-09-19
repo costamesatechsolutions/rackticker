@@ -101,8 +101,10 @@ switch_in "$root/current"
 if [[ -n "${matrix_changed:-}" ]]; then
   cp /usr/local/bin/rackticker-hub75d /usr/local/bin/rackticker-hub75d.previous 2>/dev/null || true
   mv /usr/local/bin/rackticker-hub75d.new /usr/local/bin/rackticker-hub75d
-  systemctl restart rackticker-matrix
 fi
+# Always restart the panel companion: it recreates its socket with the permissions
+# the display needs, whatever happened to /run since.
+systemctl restart rackticker-matrix
 systemctl start rackticker
 
 if healthy; then

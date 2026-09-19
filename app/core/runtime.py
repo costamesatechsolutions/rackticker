@@ -48,7 +48,7 @@ SLOW_RENDER_SECONDS = .025
 STALL_SECONDS = .1
 
 
-NETWORK_STATE = Path("/run/rackticker/network.json")
+NETWORK_STATE = Path("/run/rackticker-network/network.json")
 
 
 def read_network():

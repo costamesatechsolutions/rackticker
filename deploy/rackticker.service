@@ -2,6 +2,11 @@
 Description=RackTicker local matrix display and control interface
 Requires=rackticker-matrix.service
 After=network.target rackticker-matrix.service
+# Crashing again and again (say, after an update that passed its first minute):
+# go back to the previous version.
+StartLimitIntervalSec=600
+StartLimitBurst=6
+OnFailure=rackticker-rollback.service
 
 [Service]
 Type=simple

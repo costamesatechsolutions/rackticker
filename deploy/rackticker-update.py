@@ -142,7 +142,26 @@ def heal():
     status("done" if code == 0 else "error", "Repaired" if code == 0 else "Repair failed", code != 0)
 
 
+def rollback():
+    """The display keeps crashing: run the previous version instead, once."""
+    current, previous = ROOT / "current", ROOT / "previous"
+    if not previous.is_dir() or intact(previous) is False:
+        status("error", "RackTicker keeps stopping and there is no earlier version to go back to", True)
+        return
+    status("healing", "RackTicker kept stopping; going back to the previous version")
+    subprocess.run(["systemctl", "stop", "rackticker"])
+    shutil.rmtree(ROOT / "failed", ignore_errors=True)
+    current.rename(ROOT / "failed")
+    previous.rename(current)
+    subprocess.run(["/opt/rackticker/venv/bin/python", "-m", "pip", "install", "-q", "--no-deps",
+                    "--force-reinstall", str(current)])
+    subprocess.run(["systemctl", "reset-failed", "rackticker"])
+    subprocess.run(["systemctl", "start", "--no-block", "rackticker"])
+    status("done", "Went back to the previous version after repeated crashes",
+           revision=(current / "REVISION").read_text().strip() if (current / "REVISION").exists() else "")
+
+
 if __name__ == "__main__":
     if os.geteuid() != 0:
         sys.exit("run as root")
-    {"update": update, "heal": heal}[sys.argv[1] if len(sys.argv) > 1 else "update"]()
+    {"update": update, "heal": heal, "rollback": rollback}[sys.argv[1] if len(sys.argv) > 1 else "update"]()

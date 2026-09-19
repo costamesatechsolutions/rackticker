@@ -2,6 +2,12 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.2 - 2026-09-19
+
+- Optional control-page password (Settings → Software); stored only as a salted hash.
+- Repeated crashes switch RackTicker back to the previous version by itself.
+- The system log is capped so years of running do not wear out the SD card.
+
 ## 1.0.1 - 2026-09-19
 
 - Updates from the web page with automatic rollback, daily self-healing, factory

@@ -666,6 +666,14 @@ async function renderSoftware() {
   if (working || softwareFrom) softwareTimer = setTimeout(renderSoftware, 3000);
 }
 
+async function saveAccess() {
+  const password = $('access-password').value;
+  const result = await api('access', 'POST', {password});
+  $('access-password').value = '';
+  toast(result.password_set ? 'Password set. Your browser will ask for it (any user name).' : 'Password removed');
+  if (result.password_set) setTimeout(() => location.reload(), 1500);
+}
+
 async function factoryReset() {
   if (!confirm('Reset RackTicker to a fresh install? Settings and the playlist go back to the defaults and installed plugins are removed. A backup of your settings is kept.')) return;
   const result = await api('software/reset', 'POST', {});
@@ -735,6 +743,7 @@ async function init() {
   for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => showTab(button.dataset.tab));
   showTab(['now', 'screens', 'plugins', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'now');
   $('factory-reset').onclick = guard(factoryReset);
+  $('access-save').onclick = guard(saveAccess);
   $('pause').onclick = guard(() => control(state?.scheduler.paused ? 'resume' : 'pause'));
   $('next').onclick = guard(() => control('next'));
   $('resume').onclick = guard(() => control('resume'));

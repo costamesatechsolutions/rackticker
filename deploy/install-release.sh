@@ -66,6 +66,16 @@ install -d -o rackticker -g rackticker -m 0700 /var/lib/rackticker/plugins /var/
 if [[ ! -f /var/lib/rackticker/config.json ]]; then
   install -o rackticker -g rackticker -m 0600 "$root/staging/config/config.pi.example.json" /var/lib/rackticker/config.json
 fi
+# Keep the system log small: a Pi running for years should not wear out its SD card.
+if [[ ! -f /etc/systemd/journald.conf.d/rackticker.conf ]]; then
+  install -D -m 0644 /dev/stdin /etc/systemd/journald.conf.d/rackticker.conf <<'JOURNAL'
+[Journal]
+SystemMaxUse=48M
+RuntimeMaxUse=16M
+MaxRetentionSec=2week
+JOURNAL
+  systemctl restart systemd-journald || true
+fi
 # Panel tuning belongs to the owner: installed once, never overwritten.
 if [[ ! -f /etc/rackticker/matrix.conf ]]; then
   install -D -m 0644 "$root/staging/deploy/matrix.conf" /etc/rackticker/matrix.conf

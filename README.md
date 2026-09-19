@@ -116,6 +116,9 @@ That is the last time you need SSH:
   Wi-Fi on the page that opens, and it reconnects. If the old network comes back,
   it rejoins by itself. A working connection is never touched.
 - **Factory reset:** Settings → Software. Your old settings are kept as a backup.
+- **Password:** optional, in Settings → Software. Forgot it? Delete
+  `/var/lib/rackticker/access.json`, or reflash the SD card.
+- **Crash protection:** if RackTicker keeps stopping, it goes back to the previous version.
 
 Rendering runs under an unprivileged service account; a small root-owned C++
 companion alone owns the GPIO and receives frames over a local socket, and the

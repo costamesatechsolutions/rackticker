@@ -1,0 +1,6 @@
+[Unit]
+Description=Switch RackTicker back to the previous version after repeated crashes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-update.py rollback

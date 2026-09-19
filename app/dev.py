@@ -17,6 +17,7 @@ import asyncio
 import base64
 import io
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -279,8 +280,11 @@ def push(args):
     host = args.to if ":" in args.to else f"{args.to}:8080"
     url = f"http://{host}/api/plugins/upload"
     body = json.dumps({"zip": base64.b64encode(data.getvalue()).decode(), "note": manifest.version}).encode()
-    request = urllib.request.Request(url, data=body, method="POST",
-                                     headers={"Content-Type": "application/json", "X-RackTicker": "1"})
+    headers = {"Content-Type": "application/json", "X-RackTicker": "1"}
+    if os.environ.get("RACKTICKER_PASSWORD"):  # the control page's password, when one is set
+        token = base64.b64encode(f"dev:{os.environ['RACKTICKER_PASSWORD']}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    request = urllib.request.Request(url, data=body, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
             json.load(response)

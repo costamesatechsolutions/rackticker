@@ -89,7 +89,8 @@ switch_in() {  # $1: release folder to make current; units come from it
   systemctl daemon-reload
   systemctl enable -q rackticker-matrix rackticker rackticker-update.path rackticker-selfheal.service rackticker-network \
     rackticker-selfheal.timer 2>/dev/null || true
-  systemctl start rackticker-update.path rackticker-selfheal.timer rackticker-network 2>/dev/null || true
+  systemctl start rackticker-update.path rackticker-selfheal.timer 2>/dev/null || true
+  systemctl restart rackticker-network 2>/dev/null || true   # pick up its new code
 }
 
 say "switching to $revision"

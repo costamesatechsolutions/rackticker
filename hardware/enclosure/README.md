@@ -1,6 +1,6 @@
 # RackTicker 2U enclosure
 
-**[BEZEL_V10.md](BEZEL_V10.md)** is the release: what to buy, how to print, how to
+**[Print files on MakerWorld](https://makerworld.com/en/models/3327605-rackticker-2u-led-ticker-for-your-server-rack)** · **[BEZEL_V10.md](BEZEL_V10.md)** is the release: what to buy, how to print, how to
 assemble. Four printed parts (face end ×2, face centre, Pi cradle), eight M3 × 10
 screws and four rack screws turn two 64×32 P2.5 panels into a 19-inch, 2U rack face.
 

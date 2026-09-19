@@ -56,7 +56,7 @@ so crawls step exactly one LED per frame.
 | **WatangTech RGB Matrix Adapter Board** | Sits on the Pi's header and drives the panels ("regular" pin mapping) |
 | **5 V power supply with a barrel plug** | 4 A or more; 8 A leaves headroom at full brightness. Match the adapter's jack |
 | **microSD card** | 16 GB or more, Raspberry Pi OS Lite |
-| **3D printed 2U rack face** | Four parts, eight M3 × 10 screws, and yes, it'll fit: [BEZEL_V10.md](hardware/enclosure/BEZEL_V10.md) |
+| **3D printed 2U rack face** | Four parts, eight M3 × 10 screws, and yes, it'll fit. **[Print files on MakerWorld](https://makerworld.com/en/models/3327605-rackticker-2u-led-ticker-for-your-server-rack)**; guide in [BEZEL_V10.md](hardware/enclosure/BEZEL_V10.md) |
 | **USB ADS-B receiver** *(optional)* | An RTL-SDR stick and antenna for planes overhead; without one, Flights uses a free network feed |
 
 The panel frame is always exactly 128×32 RGB. Typography, clipping and motion are
@@ -208,3 +208,7 @@ AGPL-3.0-only. Copyright (c) 2026 RackTicker contributors. The original fonts an
 assets are covered by the same license; dependencies keep their own. The control
 page links to the license and a source archive of the running core. See
 [LICENSE](LICENSE) and the [plugin licensing notes](docs/plugins.md#licensing-and-source).
+
+The printable enclosure (`hardware/`) is licensed separately under
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/): print it, remix it,
+share it, but don't sell it.

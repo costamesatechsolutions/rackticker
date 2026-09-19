@@ -210,6 +210,7 @@ def normalize_espn_event(raw, league, timezone_name):
     return {"id": f"{league}:{raw.get('id')}", "game": game, "start": start}
 
 
+BANNER_ONLY = {"POWER PLAY", "RED ZONE"}
 FLASH_SECONDS = 180   # a big play stays on its game's card this long
 
 
@@ -233,6 +234,12 @@ def live_situation(situation, sides):
             extra["ball"] = side
         if situation.get("isRedZone"):
             extra["red_zone"] = "1"
+        # Where the ball is: yards from the home team's goal line (ESPN's convention),
+        # yards to go, and timeouts left, for the field strip.
+        for key, name in (("yardLine", "yard"), ("distance", "togo"), ("homeTimeouts", "home_timeouts"),
+                          ("awayTimeouts", "away_timeouts")):
+            if isinstance(situation.get(key), int):
+                extra[name] = str(situation[key])
     play = situation.get("lastPlay") or {}
     if play.get("text"):
         extra["play"] = str(play["text"])[:160]
@@ -275,12 +282,17 @@ def play_call(game, before):
             return extra.get("last_goal_kind", "GOAL"), side, extra.get("last_goal", "")
         if extra.get("pp") and extra.get("pp") != old.get("pp"):
             return "POWER PLAY", extra["pp"], ""
-    elif game.league in ("NFL", "NCAAF") and text:
+    elif game.league in ("NFL", "NCAAF"):
         defense = {"home": "away", "away": "home"}.get(old.get("ball"))
         if "intercepted" in text:
             return "INTERCEPTION", defense, ""
         if "fumble" in text and extra.get("ball") and extra.get("ball") != old.get("ball"):
             return "FUMBLE", defense, ""  # lost: the other team has the ball now
+        gain = re.search(r"for (\d{2,3}) yards", text)
+        if gain and int(gain[1]) >= 25 and "penalty" not in text and old.get("ball"):
+            return f"BIG PLAY +{gain[1]}", old["ball"], ""
+        if extra.get("red_zone") and not old.get("red_zone") and extra.get("ball"):
+            return "RED ZONE", extra["ball"], ""
     return None
 
 
@@ -457,7 +469,9 @@ class FreeSports(Provider):
                 call, side, who = play
                 team, other = teams[side]
                 self.flashes[item["id"]] = {"call": call, "team": team.abbreviation, "who": who, "at": now}
-                if team.abbreviation in favorites and call != "POWER PLAY":
+                # Your team's goals, homers and turnovers take over the panel; momentum
+                # (a power play, the red zone, a long gain) is a banner on the card.
+                if team.abbreviation in favorites and call not in BANNER_ONLY and not call.startswith("BIG PLAY"):
                     self._celebrate(call, team, other, game.league, who)
                     continue
             for side, (team, other) in teams.items():

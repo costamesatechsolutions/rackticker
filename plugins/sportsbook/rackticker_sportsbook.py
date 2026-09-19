@@ -191,6 +191,8 @@ class Sportsbook(Module):
                 draw_text(body, "-", 61, 6, DULL)
             if game.status == "live":
                 self._hockey(body, extra, math.floor(time.time() * 2) % 2 == 0)
+            if game.status == "live" and extra.get("yard"):
+                self._field(body, game, extra)
             ball = extra.get("ball") if game.status == "live" else None
             if ball:  # who has the ball: a football beside their logo, red inside the 20
                 x = 18 if ball == "away" else 104
@@ -235,6 +237,31 @@ class Sportsbook(Module):
             draw.rectangle((x, 15, x + 2, 17), fill=RED if index < outs else (60, 44, 16))
 
     @staticmethod
+    def _field(body, game, extra):
+        """The field strip under the score, as TV draws it: the away end zone on the left
+        and the home one on the right, the ball, and the yellow first-down line."""
+        draw = ImageDraw.Draw(body)
+        left, right, y = 18, 109, 16
+        yards = lambda yard: left + 4 + round((100 - yard) * (right - left - 8) / 100)
+        draw.rectangle((left, y, right, y + 1), fill=(20, 70, 30))
+        draw.rectangle((left, y, left + 3, y + 1), fill=team_color(game.away))
+        draw.rectangle((right - 3, y, right, y + 1), fill=team_color(game.home))
+        for yard in range(10, 100, 10):   # ten-yard lines
+            draw.point((yards(yard), y), fill=(60, 120, 70))
+        yard, ball = int(extra["yard"]), extra.get("ball")
+        togo = int(extra.get("togo") or 0)
+        if ball and togo:
+            # The away team drives toward the home goal (yard line falling), and back.
+            target = yard - togo if ball == "away" else yard + togo
+            if 0 < target < 100:
+                draw.line((yards(target), y - 1, yards(target), y + 1), fill=(255, 220, 0))
+        draw.rectangle((yards(yard) - 1, y, yards(yard) + 1, y + 1),
+                       fill=RED if extra.get("red_zone") else (190, 110, 40))
+        for side, x0, step in (("away", 1, 3), ("home", 126, -3)):   # timeouts left, under each logo
+            for n in range(int(extra.get(f"{side}_timeouts") or 0)):
+                draw.point((x0 + n * step, 17), fill=LAMP)
+
+    @staticmethod
     def _hockey(body, extra, blink):
         """Beside each logo: PP and its clock for the team on the power play, EN for a
         team that has pulled its goalie."""
@@ -258,7 +285,7 @@ class Sportsbook(Module):
         width = text_width(call)
         draw_text(body, call, 64 - width // 2, 2, LAMP if on else WHITE)
         score = f"{game.away.abbreviation} {game.away.score}-{game.home.score} {game.home.abbreviation}"
-        line = f"{who}  {score}" if who and tiny_width(f"{who}  {score}") <= 124 else f"{who or team}  {score}".strip()
+        line = f"{who}  {score}" if who and tiny_width(f"{who}  {score}") <= 124 else score
         draw_tiny(body, fit_tiny(line, 124), 64 - tiny_width(fit_tiny(line, 124)) // 2, 11, WHITE)
 
     def _party_frame(self, party, age, t):

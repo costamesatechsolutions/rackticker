@@ -161,3 +161,20 @@ class HockeyTests(unittest.TestCase):
         self.assertEqual(self.sports.play_call(after, before), ("GOAL", "home", "TERRY (12)"))
         self.assertEqual(self.sports.play_call(game({"goal_count": "1", "pp": "away"}), game({"goal_count": "1"})),
                          ("POWER PLAY", "away", ""))
+
+
+class FootballTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sports = load_plugin_module()
+
+    def test_big_gain_and_red_zone_are_called(self):
+        game = lambda extra: Game(Team("KC", 7, "#E31837"), Team("LV", 3, "#A5ACAF"), "live", "Q2 5:00", "NFL", "", extra)
+        before = game({"ball": "home", "play_id": "1"})
+        after = game({"ball": "home", "play_id": "2", "play": "P.Mahomes pass deep left to T.Kelce for 34 yards"})
+        self.assertEqual(self.sports.play_call(after, before), ("BIG PLAY +34", "home", ""))
+        self.assertEqual(self.sports.play_call(game({"ball": "home", "red_zone": "1", "play_id": "2"}), before),
+                         ("RED ZONE", "home", ""))
+        field = self.sports.live_situation({"shortDownDistanceText": "3rd & 7", "yardLine": 82, "distance": 7,
+                                            "homeTimeouts": 2, "possession": "1"}, {"1": "home"})
+        self.assertEqual((field["yard"], field["togo"], field["home_timeouts"]), ("82", "7", "2"))

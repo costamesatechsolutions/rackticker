@@ -2,6 +2,11 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.5 - 2026-09-19
+
+- Night brightness: near-black backgrounds and unlit TIX cells stay dark instead of glowing.
+- Departures: announcements crawl one LED a frame under a steady heading.
+
 ## 1.0.4 - 2026-09-19
 
 - The unplug-three-times password reset counts real power-ups only.

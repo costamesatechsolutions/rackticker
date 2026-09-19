@@ -57,7 +57,7 @@ BADGES = {
 }
 ROWS, ROW_Y = 3, (1, 11, 21)
 TITLE_SECONDS, PAGE_SECONDS, SCENE_SECONDS = 3.5, 7.0, 6.5
-NOTICE_SPEED, NOTICES = 32, 3   # announcements crawl at 32 px/s; at most three per visit
+NOTICE_SPEED, NOTICES = 30, 3   # 30 px/s is one LED a frame: a smooth crawl; at most three per visit
 # The station's own announcement, per board style: (heading, late, platform, cancelled).
 # {train} is "FR 9612", {dest} the destination, {time} the planned departure.
 ANNOUNCE = {
@@ -382,12 +382,11 @@ class Board(Module):
         """An announcement, the way the board runs one: a lit heading, then the
         message crawling through in the station's language."""
         draw = ImageDraw.Draw(frame)
-        on = math.floor(t * 2) % 2 == 0
         width = text_width(heading, 1, True) + 6
-        draw.rectangle((0, 0, width, 9), fill=style["accent"] if on else (0, 0, 0), outline=style["accent"])
+        draw.rectangle((0, 0, width, 9), fill=style["accent"])   # steady: a blink read as a jump
         draw_text(frame, heading, 3, 1, WHITE, mixed=True)
         draw.line((0, 30, 127, 30), fill=DIM)
-        x = 128 - round(max(0.0, local - .3) * NOTICE_SPEED)
+        x = 128 - math.floor(max(0.0, local - .3) * NOTICE_SPEED)
         draw_text(frame, text, x, 16, style["dest"], mixed=True)
 
     @staticmethod

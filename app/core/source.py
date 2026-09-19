@@ -41,7 +41,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "rackticker"
-version = "1.0.4"
+version = "1.0.5"
 requires-python = ">=3.10"
 dependencies = ["Pillow>=9.4,<13", "aiohttp>=3.8,<4"]
 license = "AGPL-3.0-only"

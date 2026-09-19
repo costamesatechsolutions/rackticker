@@ -125,7 +125,8 @@ int main(int argc, char *argv[]) {
     }
     // At low brightness the library scales every colour down, and very dark ones land
     // on the lowest PWM steps, which flicker in scan lines (a night skyline at 5%).
-    // Lift a dark pixel just enough to stay on a steady step, keeping its hue.
+    // Lift a dark colour just enough to stay on a steady step, keeping its hue;
+    // near-black (backgrounds, unlit TIX cells) goes fully dark instead of glowing.
     const int floor_level = requested_brightness < 40 ? std::min(255, 400 / requested_brightness) : 0;
     const uint8_t *pixel = frame.data();
     for (int y = 0; y < kHeight; ++y) {
@@ -133,9 +134,13 @@ int main(int argc, char *argv[]) {
         int r = pixel[0], g = pixel[1], b = pixel[2];
         const int top = std::max(r, std::max(g, b));
         if (floor_level && top > 0 && top < floor_level) {
-          r = r * floor_level / top;
-          g = g * floor_level / top;
-          b = b * floor_level / top;
+          if (top < floor_level / 2) {
+            r = g = b = 0;   // barely-there backgrounds and unlit cells: dark, as meant
+          } else {
+            r = r * floor_level / top;
+            g = g * floor_level / top;
+            b = b * floor_level / top;
+          }
         }
         canvas->SetPixel(x, y, blank ? 0 : r, blank ? 0 : g, blank ? 0 : b);
       }

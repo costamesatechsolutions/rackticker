@@ -48,6 +48,20 @@ SLOW_RENDER_SECONDS = .025
 STALL_SECONDS = .1
 
 
+def local_address():
+    """(hostname.local, LAN IPv4 or "") without sending anything: a UDP socket
+    'connected' to a public address reveals the outgoing interface's address."""
+    import socket
+    host = f"{socket.gethostname().split('.')[0]}.local"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("1.1.1.1", 53))
+            address = probe.getsockname()[0]
+    except OSError:
+        address = ""
+    return host, "" if address.startswith("127.") else address
+
+
 class Runtime:
     def __init__(self, config, sink, registry=None, manager=None):
         self.config = config
@@ -94,6 +108,9 @@ class Runtime:
         self.tasks = []
         self.provider_lock = asyncio.Lock()
         self.started_at = time.monotonic()
+        self.splash_until = 0.0     # the boot splash: where to find the control page
+        self.port = None
+        self.splash_address = None
         self.last_state_at = 0.0
         self.last_history_at = 0.0
         self.wall_second = None
@@ -509,6 +526,8 @@ class Runtime:
             self.dirty = False
         progress = (self.animation_clock - self.scene_started) / self.transition_duration()
         candidate = transition(self.previous, self.target, progress, self.transition_kind())
+        if now < self.splash_until:
+            candidate = self.splash(now)
         # Compare only on rendered/transition candidates; static frames reuse their image.
         changed = candidate is not self.frame and candidate.tobytes() != self.frame.tobytes()
         self.frame = candidate
@@ -542,6 +561,22 @@ class Runtime:
         dt = frames * period
         self.clock_debt -= dt
         return dt
+
+    def show_splash(self, seconds=12.0):
+        """On the panel at boot: RACKTICKER and the address of its control page."""
+        self.splash_until = time.monotonic() + seconds
+
+    def splash(self, now):
+        if self.splash_address is None or (now % 2 < .05 and not self.splash_address[1]):
+            self.splash_address = local_address()
+        host, address = self.splash_address
+        frame = new_frame()
+        centered(frame, "RACKTICKER", 2, AMBER)
+        from app.core.fonts import draw_tiny, tiny_width
+        port = "" if self.port in (80, None) else f":{self.port}"
+        for y, line in ((15, f"{host}{port}".upper()), (23, f"{address}{port}" if address else "CONNECTING...")):
+            draw_tiny(frame, line, (128 - tiny_width(line)) // 2, y, MUTED if y == 23 else (230, 232, 230))
+        return frame
 
     async def run(self):
         last = time.monotonic()

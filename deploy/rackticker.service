@@ -14,7 +14,6 @@ RestartSec=5
 TimeoutStopSec=10
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=TZ=America/Los_Angeles
 StateDirectory=rackticker
 StateDirectoryMode=0700
 UMask=0077

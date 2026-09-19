@@ -146,6 +146,14 @@ python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
         </div>
       </div>
       <div class="card">
+        <h2>Software <span class="spacer"></span><span class="pill" id="software-status"></span></h2>
+        <div class="fields">
+          <div class="row"><span class="grow" id="software-version">Checking…</span><button class="btn small" id="software-update" type="button" hidden>Update</button></div>
+          <p class="hint" id="software-note"></p>
+          <div class="row"><button class="btn small quiet" id="factory-reset" type="button">Factory reset…</button><span class="hint grow">Back to the default settings and playlist, with installed plugins removed. Your old settings are kept as a backup; Wi-Fi is not changed.</span></div>
+        </div>
+      </div>
+      <div class="card">
         <h2>This preview</h2>
         <div class="fields">
           <div class="field"><span class="label">Look</span><div class="segmented" id="sim-mode"></div></div>

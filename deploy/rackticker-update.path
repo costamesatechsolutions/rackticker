@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for a RackTicker update request from the web page
+
+[Path]
+PathExists=/var/lib/rackticker/update/request.json
+Unit=rackticker-update.service
+
+[Install]
+WantedBy=multi-user.target

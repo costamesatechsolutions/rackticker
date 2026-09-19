@@ -179,6 +179,7 @@ function showTab(name) {
     $(`tab-${button.dataset.tab}`).hidden = !on;
   }
   if (name === 'plugins') loadPlugins();
+  if (name === 'settings') renderSoftware();
   history.replaceState(null, '', `#${name}`);
   draw();
 }
@@ -616,6 +617,62 @@ function renderSettings() {
   renderScenarios();
 }
 
+// --- software: version, updates from GitHub, factory reset -------------------------
+
+let softwareTimer, softwareFrom;
+async function renderSoftware() {
+  clearTimeout(softwareTimer);
+  let info;
+  try { info = await api('software', 'GET', undefined, 12); } catch (error) {
+    $('software-version').textContent = 'Could not reach the device';
+    softwareTimer = setTimeout(renderSoftware, 5000);  // it is restarting after an update
+    return;
+  }
+  const short = (sha) => (sha || '').slice(0, 7);
+  const status = info.status || {};
+  const working = info.queued || ['checking', 'installing', 'healing'].includes(status.stage);
+  if (softwareFrom && info.revision && info.revision !== softwareFrom && !working) {
+    toast('Updated. Reloading…');
+    setTimeout(() => location.reload(), 1200);
+  }
+  $('software-version').textContent = `RackTicker ${info.version}` + (info.revision ? ` (${short(info.revision)})` : '');
+  const pill = $('software-status');
+  const update = $('software-update');
+  update.hidden = !(info.updatable && info.update_available) || working;
+  let note = '';
+  if (working) {
+    pill.className = 'pill'; pill.textContent = 'Updating';
+    note = info.queued ? 'Starting the update…' : status.message;
+  } else if (status.stage === 'error' && Date.now() / 1000 - status.at < 3600) {
+    pill.className = 'pill bad'; pill.textContent = 'Update failed';
+    note = status.message;
+  } else if (info.update_available) {
+    pill.className = 'pill'; pill.textContent = 'Update available';
+    note = info.latest ? `New: ${info.latest.message}` : '';
+    if (!info.updatable) note += ' · this copy updates with git (it was not installed by the Pi installer)';
+  } else if (info.latest) {
+    pill.className = 'pill ok'; pill.textContent = 'Up to date';
+  } else {
+    pill.className = 'pill'; pill.textContent = '';
+    note = info.error || '';
+  }
+  $('software-note').textContent = note;
+  update.onclick = guard(async () => {
+    if (!confirm('Install the update? The display restarts, and goes back to this version by itself if the new one does not start.')) return;
+    softwareFrom = info.revision;
+    await api('software/update', 'POST', {commit: info.latest.commit});
+    renderSoftware();
+  });
+  if (working || softwareFrom) softwareTimer = setTimeout(renderSoftware, 3000);
+}
+
+async function factoryReset() {
+  if (!confirm('Reset RackTicker to a fresh install? Settings and the playlist go back to the defaults and installed plugins are removed. A backup of your settings is kept.')) return;
+  const result = await api('software/reset', 'POST', {});
+  toast(`Reset. Your old settings are saved as ${result.backup}. Reloading…`);
+  setTimeout(() => location.reload(), 4000);
+}
+
 function renderHaStatus() {
   const status = state?.home_assistant;
   const pill = $('ha-status');
@@ -677,6 +734,7 @@ async function init() {
   new ResizeObserver(draw).observe($('window'));
   for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => showTab(button.dataset.tab));
   showTab(['now', 'screens', 'plugins', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'now');
+  $('factory-reset').onclick = guard(factoryReset);
   $('pause').onclick = guard(() => control(state?.scheduler.paused ? 'resume' : 'pause'));
   $('next').onclick = guard(() => control('next'));
   $('resume').onclick = guard(() => control('resume'));

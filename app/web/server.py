@@ -14,7 +14,7 @@ from app.core.config import ConfigError, ConfigStore
 from app.core.runtime import Runtime
 from app.core.plugin_manager import PluginManager
 from app.integrations.home_assistant import HomeAssistant
-from app.web import lookup_api, plugins_api
+from app.web import lookup_api, plugins_api, software_api
 from app.core.source import source_zip
 from app.outputs.browser import BrowserSink
 from app.outputs.hub75 import Hub75Sink
@@ -265,6 +265,7 @@ def create_app(config_path, enabled_plugins=(), registry=None, output="browser",
     ])
     plugins_api.add_routes(app, RUNTIME, STORE)
     lookup_api.add_routes(app)
+    software_api.add_routes(app, RUNTIME, STORE, config_path)
 
     runtime.home_assistant = HomeAssistant(runtime, store)
 

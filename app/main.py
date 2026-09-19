@@ -6,7 +6,7 @@ from aiohttp import web
 from app.core.config import ConfigError
 from app.core import offload
 from app.core.plugin_manager import PluginManager
-from app.web.server import create_app
+from app.web.server import RUNTIME, create_app
 
 
 def main():
@@ -36,6 +36,10 @@ def main():
         app = create_app(args.config, args.plugin, output=args.output, bundled_by_default=True)
     except (ConfigError, OSError) as exc:
         parser.error(str(exc))
+    runtime = app[RUNTIME]
+    runtime.port = args.port
+    if args.output == "hub75":
+        runtime.show_splash()   # the panel says where its control page is
     logging.getLogger("app").info("128x32 RGB | 2 × 64x32 P2.5 | 320x80 mm | http://%s:%s", args.host, args.port)
     web.run_app(app, host=args.host, port=args.port, access_log=None)
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check RackTicker's installed files once a day
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

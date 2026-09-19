@@ -1,0 +1,9 @@
+[Unit]
+Description=Install the RackTicker update the web page asked for
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-update.py update
+TimeoutStartSec=20min

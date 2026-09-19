@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rackticker-prediction-markets"
+version = "0.1.0"
+description = "Read-only Polymarket and Kalshi probability ticker for RackTicker"
+requires-python = ">=3.10"
+dependencies = ["rackticker>=0.1,<0.2"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+
+[project.entry-points."rackticker.plugins"]
+markets = "rackticker_markets:plugin"
+
+[tool.setuptools]
+py-modules = ["rackticker_markets"]

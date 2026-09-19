@@ -1,0 +1,9 @@
+{
+  "id": "now_playing",
+  "name": "Now playing",
+  "entry": "plugin.py",
+  "description": "The song you are listening to, like an old car stereo: album art, the title and artist scrolling past, track number and time, and a segmented spectrum analyser. From Spotify or any Home Assistant media player.",
+  "author": "RackTicker",
+  "version": "1.1.0",
+  "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/now_playing"
+}

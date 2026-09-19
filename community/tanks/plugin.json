@@ -1,0 +1,9 @@
+{
+  "id": "tanks",
+  "name": "Tanks",
+  "entry": "plugin.py",
+  "description": "Real levels as sloshing water: California's big reservoirs, and the space station's urine and water tanks when NASA's live feed answers.",
+  "author": "RackTicker",
+  "version": "1.0.0",
+  "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/tanks"
+}

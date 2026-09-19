@@ -1,0 +1,9 @@
+{
+  "id": "starter_plugin",
+  "name": "Starter plugin",
+  "entry": "plugin.py",
+  "description": "Where the International Space Station is right now: a starting point for your own screen.",
+  "author": "You",
+  "version": "0.1.0",
+  "homepage": ""
+}

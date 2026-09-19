@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "plugins": {},
+  "display": {
+    "brightness": 85,
+    "scroll_speed": 30,
+    "scroll_gap": 32,
+    "transition": "auto",
+    "transition_seconds": 0.5,
+    "fps": 30,
+    "night_mode": false,
+    "night_brightness": 20,
+    "night_start": "23:00",
+    "night_end": "07:00"
+  },
+  "simulator": {
+    "mode": "led",
+    "zoom": "fit",
+    "animation_speed": 1.0
+  },
+  "modules": {
+    "clock": {
+      "enabled": true,
+      "hour_format": "12",
+      "show_seconds": true,
+      "style": "desk"
+    },
+    "tixclock": {
+      "enabled": true,
+      "hour_format": "12",
+      "update_interval": 4,
+      "show_label": false
+    },
+    "flight": {
+      "enabled": true,
+      "max_distance_miles": 10,
+      "layout": "route"
+    },
+    "sports": {
+      "enabled": true
+    },
+    "message": {
+      "enabled": true,
+      "title": "RACKTICKER",
+      "text": "WASHER FINISHED • FRONT DOOR OPEN",
+      "scrolling": true
+    },
+    "system_status": {
+      "enabled": true,
+      "temperature_unit": "F"
+    }
+  },
+  "playlist": [
+    {
+      "id": "clock-1",
+      "module": "clock",
+      "duration": 8,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "tixclock-1",
+      "module": "tixclock",
+      "duration": 20,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "sports-1",
+      "module": "sports",
+      "duration": 10,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "flight-1",
+      "module": "flight",
+      "duration": 10,
+      "enabled": true,
+      "mode": "conditional"
+    },
+    {
+      "id": "clock-2",
+      "module": "clock",
+      "duration": 8,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "message-1",
+      "module": "message",
+      "duration": 10,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "status-1",
+      "module": "system_status",
+      "duration": 6,
+      "enabled": true,
+      "mode": "normal"
+    }
+  ]
+}

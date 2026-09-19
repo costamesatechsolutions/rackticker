@@ -1,0 +1,24 @@
+[Unit]
+Description=RackTicker HUB75 matrix refresh service
+After=local-fs.target
+Before=rackticker.service
+
+[Service]
+Type=simple
+User=root
+Group=rackticker
+RuntimeDirectory=rackticker
+RuntimeDirectoryMode=0770
+EnvironmentFile=-/etc/rackticker/matrix.conf
+ExecStart=/usr/local/bin/rackticker-hub75d $MATRIX_FLAGS
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

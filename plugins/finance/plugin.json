@@ -1,0 +1,8 @@
+{
+  "id": "finance",
+  "name": "Stock tape",
+  "entry": "rackticker_finance.py",
+  "description": "CNBC-style market tape: a flipping index header over a continuous two-deck crawl of the day's movers and your watchlist. Key-free Yahoo chart quotes.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

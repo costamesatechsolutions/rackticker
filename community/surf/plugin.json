@@ -1,0 +1,9 @@
+{
+  "id": "surf",
+  "name": "Surf",
+  "entry": "plugin.py",
+  "description": "The surf at your break: wave height, swell period and direction, water temperature and the next tide, over a rolling wave sized to the real one.",
+  "author": "RackTicker",
+  "version": "1.0.0",
+  "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/surf"
+}

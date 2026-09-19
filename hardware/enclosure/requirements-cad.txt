@@ -1,0 +1,12 @@
+# CAD toolchain for the v4 bezel (separate from the RackTicker application venv)
+#   python3 -m venv cadenv && ./cadenv/bin/pip install -r requirements-cad.txt
+cadquery>=2.5,<3
+trimesh>=4.12,<5
+manifold3d>=3.5,<4
+shapely>=2.0,<3
+numpy>=1.26
+scipy>=1.13
+matplotlib>=3.9
+networkx
+rtree
+lxml

@@ -1,0 +1,8 @@
+{
+  "id": "free_sports",
+  "name": "Free sports scores",
+  "entry": "rackticker_free_sports.py",
+  "description": "Key-free multi-league schedules and scores for RackTicker.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

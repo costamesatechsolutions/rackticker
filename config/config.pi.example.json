@@ -1,0 +1,283 @@
+{
+  "version": 1,
+  "plugins": {
+    "local_adsb": {
+      "aircraft_path": "/run/dump1090-fa/aircraft.json",
+      "receiver_path": "/run/dump1090-fa/receiver.json",
+      "radius_miles": 35,
+      "interrupt_radius_miles": 2.5,
+      "max_age_seconds": 15,
+      "interrupts": true,
+      "cooldown_seconds": 60,
+      "route_lookup": true,
+      "route_cache_seconds": 21600,
+      "network_fallback": true,
+      "latitude": 0.0,
+      "longitude": 0.0
+    },
+    "free_sports": {
+      "leagues": "NFL,NCAAF,MLB,NBA,NHL",
+      "favorite_teams": "ANA,LAK,SD",
+      "refresh_seconds": 30,
+      "cycle_seconds": 8,
+      "timezone": "America/Los_Angeles",
+      "show_logos": true
+    },
+    "sportsbook": {
+      "card_seconds": 6
+    },
+    "town": {
+      "town_name": "RACKVILLE"
+    },
+    "traffic": {
+      "dispatch_centers": "OCCC",
+      "latitude": 0.0,
+      "longitude": 0.0,
+      "radius_miles": 15,
+      "refresh_seconds": 120,
+      "card_seconds": 5
+    },
+    "f1": {
+      "timezone": "America/Los_Angeles",
+      "refresh_seconds": 900
+    },
+    "markets": {
+      "refresh_seconds": 90
+    },
+    "finance": {
+      "mode": "auto",
+      "symbols": "NVDA,AAPL,TSLA,MSFT,AMZN,META",
+      "refresh_seconds": 60
+    },
+    "weather": {
+      "latitude": 40.758,
+      "longitude": -73.9855,
+      "temperature_unit": "fahrenheit",
+      "refresh_seconds": 600
+    },
+    "news": {
+      "channels": "TOP=https://feeds.nbcnews.com/nbcnews/public/news|US=https://abcnews.go.com/abcnews/usheadlines|WORLD=https://feeds.bbci.co.uk/news/world/rss.xml|POLITICS=https://www.cbsnews.com/latest/rss/politics|MONEY=https://www.cnbc.com/id/100003114/device/rss/rss.html|SPORTS=https://www.espn.com/espn/rss/news|SHOWBIZ=https://www.cbsnews.com/latest/rss/entertainment|TECH=https://feeds.bbci.co.uk/news/technology/rss.xml",
+      "style": "auto",
+      "refresh_seconds": 300
+    },
+    "arcade": {
+      "mode": "auto",
+      "scene_seconds": 30
+    },
+    "ticker_wall": {
+      "mode": "auto",
+      "scene_seconds": 8,
+      "arena_items": "MAKE SOME NOISE|DEFEND THE RACK|LET'S GO",
+      "times_square_items": "RACKTICKER IS LIVE|OPEN SOURCE / BUILT FOR THE RACK|WILL FIT IN 2U",
+      "taqueria_items": "TACOS / BURRITOS / QUESADILLAS|AL PASTOR / ASADA / CARNITAS|SALSA VERDE / SALSA ROJA",
+      "vegas_items": "JACKPOT|WINNER WINNER|LUCKY 7S|ALL IN"
+    }
+  },
+  "display": {
+    "brightness": 5,
+    "scroll_speed": 30,
+    "scroll_gap": 32,
+    "transition": "auto",
+    "transition_seconds": 0.5,
+    "fps": 30,
+    "night_mode": true,
+    "night_brightness": 2,
+    "night_start": "23:00",
+    "night_end": "07:00"
+  },
+  "simulator": {
+    "mode": "led",
+    "zoom": "fit",
+    "animation_speed": 1.0
+  },
+  "modules": {
+    "clock": {
+      "enabled": true,
+      "hour_format": "12",
+      "show_seconds": true,
+      "style": "desk"
+    },
+    "tixclock": {
+      "enabled": true,
+      "hour_format": "12",
+      "update_interval": 4,
+      "show_label": false
+    },
+    "flight": {
+      "enabled": true,
+      "max_distance_miles": 35,
+      "layout": "route"
+    },
+    "sports": {
+      "enabled": true
+    },
+    "sportsbook": {
+      "enabled": true
+    },
+    "town": {
+      "enabled": true
+    },
+    "traffic": {
+      "enabled": true
+    },
+    "f1": {
+      "enabled": true
+    },
+    "markets": {
+      "enabled": true
+    },
+    "finance": {
+      "enabled": true
+    },
+    "weather": {
+      "enabled": true
+    },
+    "news": {
+      "enabled": true
+    },
+    "arcade": {
+      "enabled": true
+    },
+    "ticker_wall": {
+      "enabled": true
+    },
+    "message": {
+      "enabled": true,
+      "title": "RACKTICKER",
+      "text": "WILL FIT IN 2U",
+      "scrolling": true
+    },
+    "system_status": {
+      "enabled": false,
+      "temperature_unit": "F"
+    }
+  },
+  "playlist": [
+    {
+      "id": "clock-1",
+      "module": "clock",
+      "duration": 8,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "finance-1",
+      "module": "finance",
+      "duration": 30,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "sportsbook-1",
+      "module": "sportsbook",
+      "duration": 30,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "ticker-wall-1",
+      "module": "ticker_wall",
+      "duration": 20,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "news-1",
+      "module": "news",
+      "duration": 35,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "markets-1",
+      "module": "markets",
+      "duration": 25,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "weather-1",
+      "module": "weather",
+      "duration": 14,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "traffic-1",
+      "module": "traffic",
+      "duration": 20,
+      "enabled": true,
+      "mode": "conditional"
+    },
+    {
+      "id": "flight-1",
+      "module": "flight",
+      "duration": 15,
+      "enabled": true,
+      "mode": "conditional"
+    },
+    {
+      "id": "town-1",
+      "module": "town",
+      "duration": 30,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "finance-2",
+      "module": "finance",
+      "duration": 25,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "sportsbook-2",
+      "module": "sportsbook",
+      "duration": 25,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "ticker-wall-2",
+      "module": "ticker_wall",
+      "duration": 20,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "arcade-1",
+      "module": "arcade",
+      "duration": 40,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "news-2",
+      "module": "news",
+      "duration": 30,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "markets-2",
+      "module": "markets",
+      "duration": 20,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "f1-1",
+      "module": "f1",
+      "duration": 10,
+      "enabled": true,
+      "mode": "normal"
+    },
+    {
+      "id": "tixclock-1",
+      "module": "tixclock",
+      "duration": 12,
+      "enabled": true,
+      "mode": "normal"
+    }
+  ]
+}

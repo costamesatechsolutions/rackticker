@@ -1,0 +1,30 @@
+[Unit]
+Description=RackTicker local matrix display and control interface
+Requires=rackticker-matrix.service
+After=network.target rackticker-matrix.service
+
+[Service]
+Type=simple
+User=rackticker
+Group=rackticker
+WorkingDirectory=/opt/rackticker/current
+ExecStart=/opt/rackticker/venv/bin/python -m app --host 0.0.0.0 --port 8081 --config /var/lib/rackticker/config.json --output hub75
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TZ=America/Los_Angeles
+StateDirectory=rackticker
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/rackticker
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

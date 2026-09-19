@@ -1,0 +1,8 @@
+{
+  "id": "news",
+  "name": "News desk",
+  "entry": "rackticker_news.py",
+  "description": "Network-style news desk: rotating channels (top stories, U.S., world, money, sports, showbiz, tech) from any RSS/Atom feeds, drawn two ways:",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

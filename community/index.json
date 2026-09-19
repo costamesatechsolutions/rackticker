@@ -1,0 +1,40 @@
+{
+  "about": "Community plugins for RackTicker. Add yours with a pull request: one entry pointing at a public GitHub folder that contains plugin.json.",
+  "plugins": [
+    {
+      "id": "departures",
+      "name": "Departures",
+      "author": "RackTicker",
+      "description": "Live station boards from Budapest, Rome, Milan, Florence, Venice, Naples and Zürich, drawn the way each country's boards look, with trains pulling into the platform.",
+      "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/departures"
+    },
+    {
+      "id": "tanks",
+      "name": "Tanks",
+      "author": "RackTicker",
+      "description": "Real levels as sloshing water: California's big reservoirs, and the space station's urine and water tanks when NASA's live feed answers.",
+      "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/tanks"
+    },
+    {
+      "id": "quakes",
+      "name": "Quakes",
+      "author": "RackTicker",
+      "description": "Earthquakes around you from the USGS: a 24-hour seismograph drum, the latest shakes by size and distance, and a take-over when a strong one hits nearby.",
+      "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/quakes"
+    },
+    {
+      "id": "surf",
+      "name": "Surf",
+      "author": "RackTicker",
+      "description": "The surf at your break: wave height, swell period and direction, water temperature and the next tide, over a rolling wave sized to the real one.",
+      "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/surf"
+    },
+    {
+      "id": "now_playing",
+      "name": "Now playing",
+      "author": "RackTicker",
+      "description": "The song you are listening to, like an old car stereo: album art, scrolling title and artist, track and time, and a segmented spectrum analyser. Spotify or any Home Assistant media player.",
+      "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/now_playing"
+    }
+  ]
+}

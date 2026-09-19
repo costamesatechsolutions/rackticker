@@ -1,0 +1,8 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "entry": "rackticker_weather.py",
+  "description": "Graphical weather using Open-Meteo's key-free forecast API.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

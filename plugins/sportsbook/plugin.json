@@ -1,0 +1,8 @@
+{
+  "id": "sportsbook",
+  "name": "Sportsbook board",
+  "entry": "rackticker_sportsbook.py",
+  "description": "Vegas race & sports book: a matchup card per game with team logos, lines that flip between spread and moneyline, big live scores, and fireworks when your team scores.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

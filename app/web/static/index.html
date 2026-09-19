@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eeebe5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#151412" media="(prefers-color-scheme: dark)">
+  <title>RackTicker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d1c1a'/%3E%3Cg fill='%23df5a1f'%3E%3Ccircle cx='9' cy='11' r='2.6'/%3E%3Ccircle cx='16' cy='11' r='2.6'/%3E%3Ccircle cx='23' cy='11' r='2.6'/%3E%3Ccircle cx='9' cy='21' r='2.6'/%3E%3Ccircle cx='16' cy='21' r='2.6' opacity='.4'/%3E%3Ccircle cx='23' cy='21' r='2.6' opacity='.4'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>RackTicker</div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" data-tab="now" aria-selected="true">Now</button>
+      <button role="tab" data-tab="screens" aria-selected="false">Screens</button>
+      <button role="tab" data-tab="plugins" aria-selected="false">Plugins</button>
+      <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
+    <div id="link" class="link"><i></i><span>Connecting</span></div>
+  </header>
+
+  <main>
+    <!-- NOW: what the panel shows, and quick control -->
+    <section class="page" id="tab-now" role="tabpanel">
+      <div class="card">
+        <div class="bezel">
+          <div class="window" id="window"><canvas id="matrix" width="128" height="32" role="img" aria-label="Live view of the LED panel"></canvas></div>
+          <div class="bezel-foot"><span>128 × 32 · RGB</span><span id="offline" class="offline-note" hidden>Reconnecting…</span><span id="scale">—</span></div>
+        </div>
+        <div class="nowline">
+          <div class="what"><span class="kind" id="now-kind">Playlist</span><strong id="now-name">—</strong>
+            <div class="progress"><i id="now-progress"></i></div></div>
+          <button class="btn" id="pause">Pause</button>
+          <button class="btn primary" id="next">Next →</button>
+        </div>
+        <div class="row" id="back-row" hidden style="margin-top:12px"><span class="hint grow" id="back-note">Showing one screen.</span><button class="btn small" id="resume">Back to the playlist</button></div>
+      </div>
+
+      <div class="cols">
+        <div class="card">
+          <h2>Show now</h2>
+          <div class="tiles" id="tiles"></div>
+        </div>
+        <div class="page">
+          <div class="card">
+            <h2>Display</h2>
+            <div class="fields">
+              <div class="line-field"><span class="label">Panel on</span><span class="switch"><input type="checkbox" id="power" aria-label="Panel on"></span></div>
+              <div class="field"><label for="quick-brightness">Brightness</label>
+                <div class="slider"><input type="range" id="quick-brightness" min="1" max="100"><output id="quick-brightness-value">—</output></div></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Message</h2>
+            <form class="fields" id="message-form">
+              <input id="message-text" maxlength="255" placeholder="Dinner's ready!" aria-label="Message text" required>
+              <div class="row"><span class="hint grow">Shows for a few seconds, then the playlist carries on.</span><button class="btn primary" type="submit">Put it up</button></div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREENS: the playlist, each screen with its own settings -->
+    <section class="page" id="tab-screens" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Playlist <span class="spacer"></span><span class="hint" id="screens-count" style="font-family:inherit;text-transform:none;letter-spacing:0"></span></h2>
+        <p class="hint">Screens play in this order. A screen with nothing to show (no game on, no plane nearby) is skipped until it does.</p>
+      </div>
+      <div class="screens" id="screens"></div>
+      <div class="card row"><select id="add-screen" class="grow" aria-label="Screen to add"></select><button class="btn" id="add-screen-button">Add screen</button></div>
+    </section>
+
+    <!-- PLUGINS -->
+    <section class="page" id="tab-plugins" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Add a plugin</h2>
+        <div class="fields">
+          <form class="install" id="install-form">
+            <input type="url" id="install-url" placeholder="https://github.com/someone/rackticker-plugin" aria-label="GitHub link" required>
+            <button class="btn primary" type="submit" id="install-button">Install</button>
+          </form>
+          <p class="hint">Paste a GitHub link to a plugin (or a folder in a repository). Plugins you add run in their own sandboxed process: if one misbehaves, only it restarts.</p>
+        </div>
+      </div>
+      <div class="card" id="community-card">
+        <h2>Community plugins <span class="spacer"></span><button class="btn small quiet" id="check-updates">Check for updates</button></h2>
+        <div class="plugins" id="community"></div>
+      </div>
+      <div class="section-title">Installed</div>
+      <div class="plugins" id="installed"></div>
+      <div class="section-title">Built in</div>
+      <div class="plugins" id="builtin"></div>
+      <div class="card">
+        <h2>For plugin developers</h2>
+        <div class="fields">
+          <div class="line-field"><span class="label">Allow plugin uploads from this network</span><span class="switch"><input type="checkbox" id="uploads" aria-label="Allow plugin uploads"></span></div>
+          <p class="hint">Lets <code>python -m app.dev push ./my-plugin</code> install straight from your computer. Anyone on your network could then run code on this device, so switch it off when you are done.</p>
+          <pre id="dev-snippet">python -m app.dev new my_plugin
+python -m app.dev preview ./my_plugin
+python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page" id="tab-settings" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Home</h2>
+        <div class="fields"><div class="field"><span class="label">Location</span><div id="home-location"></div>
+          <span class="hint">Used for weather, nearby flights and traffic. Stored only on this device.</span></div></div>
+      </div>
+      <div class="card">
+        <h2>Display</h2>
+        <div class="fields">
+          <div class="field"><label for="brightness">Brightness</label><div class="slider"><input type="range" id="brightness" min="1" max="100"><output id="brightness-value"></output></div></div>
+          <div class="line-field"><span class="label">Dim at night</span><span class="switch"><input type="checkbox" id="night-mode" aria-label="Dim at night"></span></div>
+          <div class="fields two" id="night-fields">
+            <div class="field"><label for="night-start">From</label><input type="time" id="night-start" required></div>
+            <div class="field"><label for="night-end">Until</label><input type="time" id="night-end" required></div>
+            <div class="field"><label for="night-brightness">Night brightness</label><div class="slider"><input type="range" id="night-brightness" min="0" max="100"><output id="night-brightness-value"></output></div></div>
+          </div>
+          <div class="field"><span class="label">Between screens</span><div class="segmented" id="transition"></div></div>
+          <details class="advanced"><summary>Advanced</summary><div class="fields two">
+            <div class="field"><label for="scroll-speed">Scroll speed (pixels a second)</label><input type="number" id="scroll-speed" min="1" max="160"><span class="hint">30 moves exactly one LED per frame: the smoothest.</span></div>
+            <div class="field"><label for="transition-seconds">Transition length (seconds)</label><input type="number" id="transition-seconds" min="0.1" max="2" step="0.1"></div>
+            <div class="field"><label for="fps">Frames a second</label><input type="number" id="fps" min="5" max="30"></div>
+          </div></details>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Home Assistant <span class="spacer"></span><span class="pill" id="ha-status"></span></h2>
+        <div class="fields">
+          <div class="line-field"><span class="label">Connect through MQTT</span><span class="switch"><input type="checkbox" id="ha-enabled" aria-label="Connect to Home Assistant"></span></div>
+          <div class="fields two" id="ha-fields">
+            <div class="field"><label for="ha-host">Broker address</label><input id="ha-host" placeholder="homeassistant.local"></div>
+            <div class="field"><label for="ha-port">Port</label><input type="number" id="ha-port" min="1" max="65535"></div>
+            <div class="field"><label for="ha-username">Username</label><input id="ha-username" autocomplete="off"></div>
+            <div class="field"><label for="ha-password">Password</label><input type="password" id="ha-password" autocomplete="new-password"></div>
+            <div class="field"><label for="ha-name">Device name</label><input id="ha-name" maxlength="40"></div>
+          </div>
+          <p class="hint">RackTicker appears in Home Assistant as a device: a light for on/off and brightness, a screen picker, a <b>Show …</b> switch for each screen, Next and Message. Expose the switches to Alexa or Google through Home Assistant (or its Matter bridge) and say “turn on Show Sportsbook”. Needs the Mosquitto broker add-on, or any MQTT broker.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>This preview</h2>
+        <div class="fields">
+          <div class="field"><span class="label">Look</span><div class="segmented" id="sim-mode"></div></div>
+          <div class="field"><label for="sim-zoom">Size</label><select id="sim-zoom"><option value="fit">Fit the window</option><option value="4">4×</option><option value="6">6×</option><option value="8">8×</option></select></div>
+        </div>
+      </div>
+      <details class="card" id="developer">
+        <summary class="section-title" style="margin:0;cursor:pointer">Developer tools</summary>
+        <div class="fields" style="margin-top:16px">
+          <div class="field"><label for="animation-speed">Animation speed</label><div class="slider"><input type="range" id="animation-speed" min="0.1" max="2" step="0.1"><output id="animation-speed-value"></output></div><span class="hint">Slow motion to inspect animations. Clocks and playlist timing stay real.</span></div>
+          <div class="field"><span class="label">Mock data (screens without a live source)</span><div id="scenarios" class="fields"></div></div>
+          <div class="line-field"><span class="label">Pretend the internet is down</span><span class="switch"><input type="checkbox" id="fault" aria-label="Simulate an outage"></span></div>
+          <div class="row"><button class="btn small" id="colour-test" type="button">Colour test</button><span class="hint grow">Each block should match its label; see Panel tuning in the README if not.</span></div>
+          <div class="row"><a class="btn small" href="/api/frame.png" download>Save frame (PNG)</a><a class="btn small" href="/api/sequence.zip" download>Last 3 seconds (ZIP)</a></div>
+          <div class="field"><span class="label">Activity</span><div class="log" id="log"></div></div>
+          <p class="hint" id="providers"></p>
+        </div>
+      </details>
+      <footer>RackTicker · rack enhancement that fits in 2U · <a href="/static/LICENSE">AGPL-3.0</a> · <a href="/api/source.zip">Source code</a></footer>
+    </section>
+  </main>
+
+  <div class="savebar" id="savebar" hidden><span id="save-text">Unsaved changes</span><button class="btn" id="discard">Discard</button><button class="btn primary" id="save">Save</button></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <noscript><p style="padding:20px">RackTicker's control page needs JavaScript. The display keeps running without it.</p></noscript>
+</body>
+</html>

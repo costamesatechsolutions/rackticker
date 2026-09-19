@@ -1,0 +1,8 @@
+{
+  "id": "markets",
+  "name": "Prediction markets",
+  "entry": "rackticker_markets.py",
+  "description": "Read-only public prediction-market odds board; no trading capability.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

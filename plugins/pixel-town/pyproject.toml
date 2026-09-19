@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rackticker-pixel-town"
+version = "0.1.0"
+description = "A living pixel city that follows real time, weather and overhead flights for RackTicker"
+requires-python = ">=3.10"
+dependencies = ["rackticker>=0.1,<0.2"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+
+[project.entry-points."rackticker.plugins"]
+town = "rackticker_town:plugin"
+
+[tool.setuptools]
+py-modules = ["rackticker_town"]

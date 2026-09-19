@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rackticker-local-adsb"
+version = "0.1.0"
+description = "Read-only local dump1090/readsb aircraft provider for RackTicker"
+requires-python = ">=3.10"
+dependencies = ["rackticker>=0.1,<0.2"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+
+[project.entry-points."rackticker.plugins"]
+local_adsb = "rackticker_local_adsb:plugin"
+
+[tool.setuptools]
+py-modules = ["rackticker_local_adsb"]

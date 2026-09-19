@@ -1,0 +1,8 @@
+{
+  "id": "f1",
+  "name": "Formula 1",
+  "entry": "rackticker_f1.py",
+  "description": "Formula 1: a start-light gantry counting down to lights out, the last race's podium and the championship fight. Key-free Jolpica (Ergast-compatible) API.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

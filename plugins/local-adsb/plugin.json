@@ -1,0 +1,8 @@
+{
+  "id": "local_adsb",
+  "name": "ADS-B flights",
+  "entry": "rackticker_local_adsb.py",
+  "description": "Read receiver JSON without taking ownership of its SDR or changing feeders.",
+  "author": "RackTicker",
+  "version": "1.0.0"
+}

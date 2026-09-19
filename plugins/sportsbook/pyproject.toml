@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rackticker-sportsbook"
+version = "0.1.0"
+description = "Vegas-style odds board with spreads, totals, moneylines and a scores crawl for RackTicker"
+requires-python = ">=3.10"
+dependencies = ["rackticker>=0.1,<0.2"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+
+[project.entry-points."rackticker.plugins"]
+sportsbook = "rackticker_sportsbook:plugin"
+
+[tool.setuptools]
+py-modules = ["rackticker_sportsbook"]

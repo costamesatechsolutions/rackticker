@@ -194,3 +194,15 @@ class NewTickerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewsFreshnessTests(unittest.TestCase):
+    def test_old_stories_are_skipped_and_newest_lead(self):
+        from datetime import timedelta
+        news = load("news_fresh_test", "plugins/news/rackticker_news.py")
+        now = datetime.now(timezone.utc)
+        rows = [{"title": "old", "published": now - timedelta(hours=32)},
+                {"title": "new", "published": now - timedelta(hours=1)},
+                {"title": "newer", "published": now - timedelta(minutes=5)},
+                {"title": "undated", "published": None}]
+        self.assertEqual([row["title"] for row in news.fresh(rows, 12, now)], ["newer", "new", "undated"])

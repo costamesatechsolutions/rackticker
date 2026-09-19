@@ -2,6 +2,17 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.1 - 2026-09-19
+
+- Updates from the web page with automatic rollback, daily self-healing, factory
+  reset, Wi-Fi setup mode, a boot splash with the control page's address, and a
+  one-line installer. Devices update to the newest published release.
+- Hockey and football like the broadcast: shots, power plays, empty nets, goal
+  scorers; a field strip with the first-down line, timeouts and big-play banners.
+- News skips stories older than 12 hours (adjustable) and leads with the newest.
+- Fixed: a blank panel after installing the network keeper, plugin installs
+  from GitHub reading partial downloads.
+
 ## 1.0.0 - 2026-09
 
 The first public release.

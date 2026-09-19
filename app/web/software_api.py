@@ -51,11 +51,19 @@ async def latest():
     headers = {"User-Agent": f"RackTicker/{__version__} (+https://github.com/{REPO})",
                "Accept": "application/vnd.github+json"}
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8), headers=headers) as session:
-        async with session.get(f"https://api.github.com/repos/{REPO}/commits/main") as response:
+        # Devices update to the newest published release, not every push to main:
+        # a release is a version someone chose to ship. Without releases, main.
+        ref, title = "main", ""
+        async with session.get(f"https://api.github.com/repos/{REPO}/releases/latest") as response:
+            if response.status == 200:
+                release = await response.json(content_type=None)
+                ref, title = release.get("tag_name") or "main", release.get("name") or release.get("tag_name") or ""
+        async with session.get(f"https://api.github.com/repos/{REPO}/commits/{ref}") as response:
             response.raise_for_status()
             payload = await response.json(content_type=None)
     commit = payload.get("commit") or {}
-    value = {"commit": payload.get("sha", ""), "message": str(commit.get("message") or "").split("\n")[0][:120],
+    value = {"commit": payload.get("sha", ""), "release": title,
+             "message": title or str(commit.get("message") or "").split("\n")[0][:120],
              "date": (commit.get("committer") or {}).get("date")}
     _latest.update(at=time.monotonic(), value=value)
     return value

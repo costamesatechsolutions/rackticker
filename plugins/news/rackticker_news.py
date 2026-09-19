@@ -122,6 +122,16 @@ def headlines(xml_text):
     return [entry["title"] for entry in entries(xml_text)]
 
 
+def fresh(rows, hours, now=None):
+    """Newest first, and nothing older than `hours`: some feeds keep day-old stories at
+    the top. Undated stories are kept, after the dated ones."""
+    now = now or datetime.now(timezone.utc)
+    dated = [row for row in rows if row.get("published")]
+    recent = sorted((row for row in dated if (now - row["published"]).total_seconds() <= hours * 3600),
+                    key=lambda row: row["published"], reverse=True)
+    return recent + [row for row in rows if not row.get("published")]
+
+
 class NewsProvider(Provider):
     def __init__(self, context):
         self.context = context
@@ -136,7 +146,8 @@ class NewsProvider(Provider):
         if len(body) > 2_000_000:
             raise ValueError("News feed is too large")
         parsed = await offload(entries, body)
-        return [dict(row, channel=label, outlet=outlet(url)) for row in parsed[:10]]
+        return [dict(row, channel=label, outlet=outlet(url))
+                for row in fresh(parsed, self.context.settings["max_age_hours"])[:10]]
 
     async def fetch(self):
         settings = self.context.settings
@@ -351,15 +362,19 @@ def validate(settings):
         raise ValueError("channels must be 1–8 LABEL=https://feed entries separated by |")
     if settings.get("style") not in ("auto", "breaking", "zipper"):
         raise ValueError("style must be auto, breaking or zipper")
+    age = settings.get("max_age_hours")
+    if isinstance(age, bool) or not isinstance(age, (int, float)) or not 1 <= age <= 72:
+        raise ValueError("max_age_hours must be 1–72")
     refresh = settings.get("refresh_seconds")
     if isinstance(refresh, bool) or not isinstance(refresh, (int, float)) or not 120 <= refresh <= 3600:
         raise ValueError("refresh_seconds must be 120–3600")
 
 
 plugin = Plugin("news", "News desk", module=NewsModule, provider=NewsProvider,
-                defaults={"channels": DEFAULT_CHANNELS, "style": "auto", "refresh_seconds": 300},
+                defaults={"channels": DEFAULT_CHANNELS, "style": "auto", "refresh_seconds": 300, "max_age_hours": 12},
                 validate_settings=validate, migrate_settings=migrate,
                 choices={"style": ("auto", "breaking", "zipper")},
                 help={"channels": "Up to 8 LABEL=https://rss-feed entries separated by |",
                       "style": "breaking is a TV lower third, zipper is Times Square; auto alternates"},
-    ui={"refresh_seconds": {"advanced": True}, "channels": {"advanced": True, "label": "Channels (LABEL=feed URL, separated by |)"}})
+    ui={"refresh_seconds": {"advanced": True},
+        "max_age_hours": {"type": "slider", "min": 1, "max": 72, "unit": "h", "label": "Skip stories older than"}, "channels": {"advanced": True, "label": "Channels (LABEL=feed URL, separated by |)"}})

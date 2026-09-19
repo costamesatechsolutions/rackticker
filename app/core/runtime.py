@@ -408,11 +408,14 @@ class Runtime:
         """What the Status screen reports, from this device rather than from hope."""
         was = self.system
         network = read_network()
-        # The keeper's word when it has one; otherwise whether the feeds are reaching anyone.
-        if network.get("mode") == "setup":
+        # The keeper's word while it is fresh; a stale file is from a keeper that
+        # stopped, and stale news is worse than no news.
+        if network.get("at", 0) < time.time() - 120:
+            network = {}
+        if network.get("mode") in ("setup", "offline"):
             internet = False
-        elif "online" in network:
-            internet = bool(network["online"])
+        elif network.get("mode") == "online" or "online" in network:
+            internet = bool(network.get("online", True))
         else:
             live = [s for s in self.snapshots.values() if s.source != "mock"]
             internet = not live or any(not s.error for s in live)

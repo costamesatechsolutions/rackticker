@@ -161,7 +161,10 @@ class Host:
                     result = replace(result, stale=True)
             except Exception as exc:
                 message = str(exc) or type(exc).__name__
-                print(f"provider error: {message}", file=sys.stderr)
+                # Say it once. A plugin waiting to be logged in fails every few
+                # seconds, and that used to fill the log (and wear the card) all day.
+                if not previous or previous.error != message:
+                    print(f"provider error: {message}", file=sys.stderr)
                 result = (replace(previous, stale=True, error=message) if previous
                           else Snapshot(None, stale=True, error=message))
             self.snapshots[name] = result

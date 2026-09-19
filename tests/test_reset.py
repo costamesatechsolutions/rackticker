@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -245,6 +246,42 @@ class PanelNoticeTests(unittest.TestCase):
             self.assertAlmostEqual(runtime.read_temperature(), 58.312, places=3)
         with mock.patch.object(runtime, "THERMAL", Path("/nonexistent/temp")):
             self.assertEqual(runtime.read_temperature(fallback=25.6), 25.6)
+
+
+class InternetTests(unittest.TestCase):
+    """Whether the Status screen says INTERNET OK, and what it believes when unsure."""
+
+    def look(self, network, snapshots=()):
+        from app.core import runtime
+        from app.core.models import Snapshot, SystemStatus
+        runner = mock.Mock(spec=["system", "snapshots", "home_assistant", "dirty"])
+        runner.system, runner.snapshots, runner.home_assistant = SystemStatus(), dict(snapshots), None
+        with mock.patch.object(runtime, "read_network", lambda: network), \
+             mock.patch.object(runtime, "read_temperature", lambda fallback=0: 50.0), \
+             mock.patch.object(runtime, "software_notice", lambda: ""):
+            runtime.Runtime.read_system(runner)
+        return runner.system.internet
+
+    def test_the_keeper_is_believed_while_it_is_fresh(self):
+        fresh = {"mode": "online", "at": int(time.time())}
+        self.assertTrue(self.look(fresh))
+        self.assertFalse(self.look({**fresh, "mode": "setup"}))
+        self.assertFalse(self.look({**fresh, "mode": "offline"}))
+
+    def test_a_keeper_that_stopped_talking_is_not_believed(self):
+        from app.core.models import Snapshot
+        old = {"mode": "online", "at": int(time.time()) - 600}
+        failing = {"news": Snapshot(None, stale=True, error="TimeoutError", source="live")}
+        self.assertFalse(self.look(old, failing))
+
+    def test_with_no_keeper_the_feeds_answer_the_question(self):
+        from app.core.models import Snapshot
+        working = {"news": Snapshot({"a": 1}, source="live")}
+        failing = {"news": Snapshot(None, stale=True, error="TimeoutError", source="live")}
+        self.assertTrue(self.look({}, working))
+        self.assertFalse(self.look({}, failing))
+        self.assertTrue(self.look({}, {**working, **{"sports": failing["news"]}}))   # one feed down is not offline
+        self.assertTrue(self.look({}, {}))   # nothing to go on: do not cry wolf
 
 
 if __name__ == "__main__":

@@ -657,6 +657,7 @@ async function renderSoftware() {
     note = info.error || '';
   }
   $('software-note').textContent = note;
+  if (info.timezone) loadTimezones(info.timezone).catch(() => {});
   update.onclick = guard(async () => {
     if (!confirm('Install the update? The display restarts, and goes back to this version by itself if the new one does not start.')) return;
     softwareFrom = info.revision;
@@ -664,6 +665,19 @@ async function renderSoftware() {
     renderSoftware();
   });
   if (working || softwareFrom) softwareTimer = setTimeout(renderSoftware, 3000);
+}
+
+async function loadTimezones(current) {
+  const select = $('timezone');
+  if (select.dataset.loaded) { select.value = current; return; }
+  const {zones} = await api('timezones', 'GET', undefined, 12);
+  select.replaceChildren(...zones.map((zone) => h('option', {value: zone, text: zone.replaceAll('_', ' ')})));
+  select.dataset.loaded = '1';
+  select.value = current;
+  $('timezone-save').onclick = guard(async () => {
+    await api('timezone', 'POST', {timezone: select.value});
+    toast('Time zone set. The display restarts in a moment.');
+  });
 }
 
 async function saveAccess() {

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rackticker"
-version = "1.0.11"
+version = "1.1.0"
 description = "Rack enhancement that fits in 2U: a 128×32 LED ticker for your server rack"
 requires-python = ">=3.10"
 dependencies = ["Pillow>=9.4,<13", "aiohttp>=3.8,<4", "tzdata>=2025.2"]

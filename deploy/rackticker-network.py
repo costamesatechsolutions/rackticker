@@ -21,6 +21,7 @@ from __future__ import annotations
 import html
 import http.server
 import ipaddress
+import re
 import json
 import os
 from pathlib import Path
@@ -43,6 +44,7 @@ TICK = 10
 # Forgot the control page's password and no SSH? Unplug RackTicker as soon as its
 # panel lights up, three times in a row: the next start clears the password.
 QUICK_BOOTS = Path("/var/lib/rackticker/quick-boots")
+TIMEZONE_REQUEST = Path("/var/lib/rackticker/timezone")   # the page asks; this applies it
 ACCESS = Path("/var/lib/rackticker/access.json")
 SETTLED = 90   # seconds of running that mean "this was not a quick unplug"
 
@@ -352,8 +354,25 @@ margin:6px 0}}button{{background:#e0561c;color:#fff;border:0;border-radius:6px}}
         temporary.chmod(0o644)
         temporary.replace(STATE)
 
+    @staticmethod
+    def apply_timezone():
+        """Set the clock's time zone when the page asks: it cannot do this itself."""
+        try:
+            wanted = TIMEZONE_REQUEST.read_text().strip()
+        except OSError:
+            return
+        TIMEZONE_REQUEST.unlink(missing_ok=True)
+        if not re.fullmatch(r"[A-Za-z0-9+_/-]{1,64}", wanted) or not Path("/usr/share/zoneinfo", wanted).is_file():
+            print(f"ignoring time zone {wanted!r}")
+            return
+        print(f"setting the time zone to {wanted}")
+        subprocess.run(["timedatectl", "set-timezone", wanted], timeout=30)
+        subprocess.run(["systemctl", "restart", "--no-block", "rackticker"])   # clocks read it at start
+
     def tick(self, act=True):
         now = time.monotonic()
+        if act:
+            self.apply_timezone()
         if act and not self.settled and now - self.started >= SETTLED:
             self.settled = True   # running a while: the next start is not a quick unplug
             try:

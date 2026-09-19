@@ -2,6 +2,11 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.1.0 - 2026-09-19
+
+- Set the time zone from Settings, no SSH: clocks, schedules and news timestamps
+  follow it anywhere in the world.
+
 ## 1.0.11 - 2026-09-19
 
 - Update now always re-checks GitHub first, and a device refuses to install a

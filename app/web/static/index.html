@@ -150,6 +150,7 @@ python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
         <div class="fields">
           <div class="row"><span class="grow" id="software-version">Checking…</span><button class="btn small" id="software-update" type="button" hidden>Update</button></div>
           <p class="hint" id="software-note"></p>
+          <div class="row"><label for="timezone" class="label">Time zone</label><select id="timezone" class="grow"></select><button class="btn small" id="timezone-save" type="button">Set</button></div>
           <div class="row"><input type="password" id="access-password" autocomplete="new-password" placeholder="Control page password" class="grow"><button class="btn small" id="access-save" type="button">Set password</button></div>
           <p class="hint" id="access-note">Optional. Anyone opening this page must then enter it (any user name). Leave empty and press Set to remove it.</p>
           <div class="row"><button class="btn small quiet" id="factory-reset" type="button">Factory reset…</button><span class="hint grow">Back to the default settings and playlist, with installed plugins removed. Your old settings are kept as a backup; Wi-Fi is not changed.</span></div>

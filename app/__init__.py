@@ -1,3 +1,3 @@
 """RackTicker: one framebuffer, any output."""
 
-__version__ = "1.0.11"
+__version__ = "1.1.0"

@@ -81,6 +81,7 @@ def read_status(request):
 async def software_get(request):
     installed = revision()
     body = {"version": __version__, "revision": installed, "updatable": updatable(request),
+            "timezone": current_timezone(),
             "status": read_status(request), "latest": None, "update_available": False,
             "queued": (update_dir(request) / "request.json").exists()}
     try:
@@ -108,6 +109,34 @@ async def software_update(request):
     temporary.write_text(json.dumps({"commit": commit, "asked_at": int(time.time())}))
     temporary.replace(folder / "request.json")   # the updater starts when this appears
     return web.json_response({"queued": True, "commit": commit})
+
+
+def current_timezone():
+    try:
+        return Path("/etc/timezone").read_text().strip() or time.strftime("%Z")
+    except OSError:
+        return datetime.now().astimezone().tzname() or ""
+
+
+async def timezone_post(request):
+    """Ask the root helper to set the clock's time zone; the display restarts after."""
+    from zoneinfo import available_timezones
+    body = await request.json()
+    wanted = str((body or {}).get("timezone") or "").strip()
+    if wanted not in available_timezones():
+        raise ValueError("Unknown time zone")
+    folder = update_dir(request).parent
+    if not os.access(folder, os.W_OK):
+        raise ValueError("This RackTicker cannot set its own time zone (it is not a Pi install)")
+    temporary = folder / "timezone.tmp"
+    temporary.write_text(wanted)
+    temporary.replace(folder / "timezone")
+    return web.json_response({"timezone": wanted, "applying": True})
+
+
+async def timezones_get(request):
+    from zoneinfo import available_timezones
+    return web.json_response({"current": current_timezone(), "zones": sorted(available_timezones())})
 
 
 async def factory_reset(request):
@@ -141,4 +170,5 @@ def add_routes(app, runtime_key, store_key, config_path):
     KEYS.update(runtime=runtime_key, store=store_key, path=CONFIG_PATH)
     app[CONFIG_PATH] = Path(config_path)
     app.add_routes([web.get("/api/software", software_get), web.post("/api/software/update", software_update),
-                    web.post("/api/software/reset", factory_reset)])
+                    web.post("/api/software/reset", factory_reset),
+                    web.get("/api/timezones", timezones_get), web.post("/api/timezone", timezone_post)])

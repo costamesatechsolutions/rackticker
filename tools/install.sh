@@ -36,7 +36,7 @@ EOF
   systemctl daemon-reload
   systemctl enable -q rackticker-firstboot
   echo "== Rebooting. RackTicker installs itself when the Pi is back (about five minutes);"
-  echo "   the panel then shows the address of its control page."
+  echo "   the panel then shows the address of its control page: http://$(hostname).local:8081/"
   sleep 3
   reboot
   exit 0
@@ -57,6 +57,8 @@ if [[ "$stage" == release ]]; then
   systemctl disable -q rackticker-firstboot || true
   rm -f /etc/systemd/system/rackticker-firstboot.service
   systemctl daemon-reload
+  # Said here as well as on the panel: this runs unattended, but the log is read later.
+  echo "== RackTicker is running. Control page: http://$(hostname).local:8081/"
   exit 0
 fi
 

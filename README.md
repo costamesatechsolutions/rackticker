@@ -82,8 +82,9 @@ python -m pip install -r requirements.txt
 python -m app
 ```
 
-Open **http://localhost:8080/**. The first run starts a playlist of real screens;
-set your city under **Settings → Home** for weather, flights and traffic.
+Open **http://localhost:8080/** — on your own computer the control page is on port
+**8080**. (Installed on a Pi it is on **8081**; see below.) The first run starts a
+playlist of real screens and asks where the rack is.
 
 Windows PowerShell:
 
@@ -108,8 +109,14 @@ open it to your LAN, `--output hub75` on a Pi).
    ```
 
    It builds the panel driver, reboots, and installs the newest release by itself
-   (about ten minutes on a Pi 3A+). When the panels light up they show the address
-   of the control page, for example `rackticker.local:8081`.
+   (about ten minutes on a Pi 3A+).
+
+3. **Open the control page at `http://<your-pi>:8081/`** — port **8081**, not 8080.
+   When the panels light up they show the address to use, both the name and the IP
+   address: `rackticker.local:8081` over `192.168.1.50:8081`. Whatever hostname you
+   set in the imager is the name, so a Pi called `ticker` answers at
+   `ticker.local:8081`. If `.local` does not resolve on your network (some Windows
+   and Android setups), use the IP address the panel shows.
 
 That is the last time you need SSH:
 

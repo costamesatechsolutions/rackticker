@@ -66,9 +66,10 @@ class QuickBootTests(unittest.TestCase):
         folder = Path(tempfile.mkdtemp())
         KEEPER.QUICK_BOOTS, KEEPER.ACCESS = folder / "quick-boots", folder / "access.json"
         KEEPER.ACCESS.write_text("{}")
-        self.assertEqual(KEEPER.count_quick_boot(), "")
-        self.assertEqual(KEEPER.count_quick_boot(), "")
+        self.assertEqual(KEEPER.count_quick_boot("boot-1"), "")
+        self.assertEqual(KEEPER.count_quick_boot("boot-1"), "")   # a restart, not a power-up
+        self.assertEqual(KEEPER.count_quick_boot("boot-2"), "")
         self.assertTrue(KEEPER.ACCESS.exists())
-        self.assertEqual(KEEPER.count_quick_boot(), "PASSWORD CLEARED")
+        self.assertEqual(KEEPER.count_quick_boot("boot-3"), "PASSWORD CLEARED")
         self.assertFalse(KEEPER.ACCESS.exists())
-        self.assertEqual(KEEPER.QUICK_BOOTS.read_text(), "0")
+        self.assertEqual(KEEPER.QUICK_BOOTS.read_text(), "0 boot-3")

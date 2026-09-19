@@ -47,12 +47,24 @@ ACCESS = Path("/var/lib/rackticker/access.json")
 SETTLED = 90   # seconds of running that mean "this was not a quick unplug"
 
 
-def count_quick_boot():
-    """Count this start; on the third quick one in a row, clear the password."""
+BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
+
+
+def count_quick_boot(boot=None):
+    """Count this power-up (restarts of this service within one boot do not count);
+    on the third quick one in a row, clear the password."""
     try:
-        count = int(QUICK_BOOTS.read_text().strip() or 0) + 1
+        boot = boot or BOOT_ID.read_text().strip()
+    except OSError:
+        return ""
+    try:
+        count_text, _, last = QUICK_BOOTS.read_text().strip().partition(" ")
+        count = int(count_text or 0)
     except (OSError, ValueError):
-        count = 1
+        count, last = 0, ""
+    if last == boot:
+        return ""   # the same boot: a service restart, not an unplug
+    count += 1
     if count >= 3:
         cleared = ACCESS.exists()
         ACCESS.unlink(missing_ok=True)
@@ -63,7 +75,7 @@ def count_quick_boot():
     try:
         QUICK_BOOTS.parent.mkdir(parents=True, exist_ok=True)
         with open(QUICK_BOOTS, "w") as stream:
-            stream.write(str(count))
+            stream.write(f"{count} {boot}")
             stream.flush()
             os.fsync(stream.fileno())   # a power cut comes next: make it stick
     except OSError:
@@ -345,7 +357,8 @@ margin:6px 0}}button{{background:#e0561c;color:#fff;border:0;border-radius:6px}}
         if act and not self.settled and now - self.started >= SETTLED:
             self.settled = True   # running a while: the next start is not a quick unplug
             try:
-                QUICK_BOOTS.write_text("0")
+                boot = BOOT_ID.read_text().strip()
+                QUICK_BOOTS.write_text(f"0 {boot}")
             except OSError:
                 pass
         is_online, ssid, address = online()

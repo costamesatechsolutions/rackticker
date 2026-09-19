@@ -204,7 +204,9 @@ Matter bridge) and say "turn on Show Sportsbook".
 ## Make a screen
 
 A plugin is a folder with a `plugin.json` and a Python file. You never edit
-RackTicker itself.
+RackTicker itself. The quickest start is to fork the
+**[plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter)** —
+a complete screen in about forty lines — or to scaffold your own:
 
 ```sh
 python -m app.dev new surf_report           # a working starting point

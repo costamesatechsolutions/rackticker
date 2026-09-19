@@ -261,7 +261,9 @@ hello = "rackticker_hello:plugin"
 
 and start RackTicker with `--plugin hello` (repeatable). Discovery reads package
 metadata without importing code; only selected packages are loaded.
-`examples/hello-plugin` is both a pip package and an installable folder.
+`examples/hello-plugin` is both a pip package and an installable folder. It is also
+published on its own as the [plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter),
+ready to fork and install straight from GitHub.
 
 ## Licensing and source
 

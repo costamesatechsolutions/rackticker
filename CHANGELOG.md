@@ -2,6 +2,11 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.11 - 2026-09-19
+
+- Update now always re-checks GitHub first, and a device refuses to install a
+  version older than the one it runs. A cached answer could install an older release.
+
 ## 1.0.10 - 2026-09-19
 
 - The parsing helper is recycled, so it no longer grows to a third of the memory in use.

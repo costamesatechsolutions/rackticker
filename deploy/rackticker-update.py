@@ -57,6 +57,14 @@ def on_main(commit):
     return compare.get("status") in ("identical", "ahead")
 
 
+def newer_than_installed(commit, installed):
+    """False if the commit is behind what is installed: never quietly go backwards."""
+    if not installed or installed == commit:
+        return installed != commit
+    compare = json.loads(get(f"https://api.github.com/repos/{REPO}/compare/{installed}...{commit}"))
+    return compare.get("status") in ("ahead", "diverged")
+
+
 def install(commit):
     with tempfile.TemporaryDirectory(prefix="rackticker-update-") as folder:
         archive = Path(folder) / "release.tar.gz"
@@ -84,6 +92,9 @@ def update():
         status("checking", "Checking the update on GitHub", target=commit, current=current)
         if not on_main(commit):
             status("error", "Only releases from RackTicker's main branch can be installed", True)
+            return
+        if not newer_than_installed(commit, current):
+            status("error", "That version is not newer than the one installed", True)
             return
         status("installing", "Downloading and installing; the display restarts in a moment", target=commit)
         code = install(commit)

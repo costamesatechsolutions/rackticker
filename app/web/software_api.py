@@ -45,8 +45,8 @@ def updatable(request):
     return bool(revision()) and folder.is_dir() and os.access(folder, os.W_OK)
 
 
-async def latest():
-    if _latest["value"] and time.monotonic() - _latest["at"] < LATEST_SECONDS:
+async def latest(force=False):
+    if not force and _latest["value"] and time.monotonic() - _latest["at"] < LATEST_SECONDS:
         return _latest["value"]
     headers = {"User-Agent": f"RackTicker/{__version__} (+https://github.com/{REPO})",
                "Accept": "application/vnd.github+json"}
@@ -97,7 +97,10 @@ async def software_update(request):
         raise ValueError("This RackTicker was not installed by the Pi installer, so it updates with git or "
                          "tools/deploy_pi.sh instead")
     body = await request.json()
-    commit = str((body or {}).get("commit") or (await latest())["commit"]).lower()
+    # Always ask GitHub again: a cached answer from minutes ago once installed an
+    # older release over a newer one.
+    newest = await latest(force=True)
+    commit = str((body or {}).get("commit") or newest["commit"]).lower()
     if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
         raise ValueError("Expected a full commit id")
     folder = update_dir(request)

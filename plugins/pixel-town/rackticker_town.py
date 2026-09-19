@@ -28,8 +28,17 @@ BUSY_KEYS = ((0, .3), (5, .25), (7, .6), (12, .9), (18, .85), (22, .45), (24, .3
 SKINS = ((255, 214, 170), (224, 172, 120), (176, 120, 80), (120, 80, 52))
 SHIRTS = ((230, 60, 60), (60, 140, 240), (250, 200, 60), (80, 200, 120), (240, 240, 240), (200, 90, 200))
 CAR_COLORS = ((210, 40, 40), (230, 230, 230), (40, 90, 210), (250, 200, 30), (110, 110, 124), (40, 160, 90))
-TRUCK = ("..oooooooooo....", ".owwwwwwwwwwo...", ".owkkkkkkkkwobb.", ".owkyyyyyykwobbw",
-         ".owwwwwwwwwwowww", ".oooooooooooooo.", "..kk.......kk...")
+# A taco truck: the taco on its roof, a striped awning over the serving window, a cab
+# with its own window, and wheels. t shell, l lettuce, r salsa, a/s awning stripes.
+TRUCK = ("....ttttt.........",
+         "...tlrlrlt........",
+         "..oooooooooooo....",
+         ".oasasasasasao....",
+         ".owyyyyyyyyywoooo.",
+         ".owyyyyyyyyywobbo.",
+         ".owwwwwwwwwwwobbo.",
+         ".ooooooooooooooooo",
+         "..gkg.......gkg...")
 CAR = ("..ggggg..", ".cgggggc.", "ccccccccc", ".kk...kk.")
 PLANE = ("...w...", "wwwwwww", "..www..")
 STREET_Y, TRUCK_X = 25, 92
@@ -257,8 +266,9 @@ class Town(Module):
         sign_width = max(tiny_width(item) for item in (*items, "12:59", "100°")) + 6
         sx = max(0, min(127 - sign_width, x + width // 2 - sign_width // 2))
         draw.rectangle((sx, top - 9, sx + sign_width - 1, top - 2), fill=(16, 14, 18), outline=(70, 60, 40))
-        draw.line((sx + 2, top - 1, sx + 2, top - 1), fill=(70, 60, 40))
-        draw.line((sx + sign_width - 3, top - 1, sx + sign_width - 3, top - 1), fill=(70, 60, 40))
+        # Its legs stand on its own roof, even when the sign is wider than the building.
+        for leg in (max(sx + 2, x + 1), min(sx + sign_width - 3, x + width - 2)):
+            draw.line((leg, top - 1, leg + 1, top - 1), fill=(70, 60, 40))
         draw_tiny(frame, text, sx + sign_width // 2 - tiny_width(text) // 2, top - 8, (255, 176, 20))
 
     def _street(self, frame, draw, pixels, night, hour, t):
@@ -272,12 +282,18 @@ class Town(Module):
                 for spread in range(-2, 3):
                     plot(frame, pixels, pole + 1 + spread, STREET_Y, (110, 96, 64))
         truck_open = 11 <= hour < 14 or 17 <= hour < 22
+        # Open: the roof taco and serving window light up and the awning's bulbs chase.
+        # Closed: the shutter is down and the sign is dark, but it is still a taco truck.
+        chase = truck_open and math.floor(t * 2) % 2
         palette = {"o": (220, 60, 50), "w": (228, 228, 218), "k": (22, 22, 30), "b": (120, 180, 220),
-                   "y": (255, 204, 90) if truck_open else (22, 22, 30)}
-        stamp(frame, sprite(TRUCK, palette), TRUCK_X, STREET_Y - 7)
-        if truck_open:
-            for n in range(8):
-                plot(frame, pixels, TRUCK_X + 3 + n, STREET_Y - 8, (255, 255, 255) if (n + math.floor(t * 2)) % 2 else (220, 60, 50))
+                   "g": (120, 120, 128),
+                   "y": (255, 204, 90) if truck_open else (70, 72, 80),
+                   "t": (255, 190, 40) if truck_open else (110, 84, 30),
+                   "l": (90, 220, 90) if truck_open else (40, 90, 40),
+                   "r": (240, 60, 40) if truck_open else (110, 40, 30),
+                   "a": (255, 255, 255) if chase else (220, 60, 50),
+                   "s": (220, 60, 50) if chase else (255, 255, 255)}
+        stamp(frame, sprite(TRUCK, palette), TRUCK_X, STREET_Y - len(TRUCK))
         for person in sorted(self.people, key=lambda p: p["x"]):
             self._person(frame, pixels, person, t)
         for lane in (0, 1):

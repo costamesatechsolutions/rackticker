@@ -30,6 +30,9 @@ pixels the panels will.
 | Data from a link | Any value from a JSON address as a big card, no code |
 | Clocks, F1 | Desk clock (with a 4:20 surprise), TIX Clock, the next Grand Prix |
 
+Traffic (California only), F1 and Prediction markets ship switched off on a fresh install;
+turn them on under Plugins.
+
 **Community plugins** install from the Plugins page with one click:
 
 | Plugin | What it shows |

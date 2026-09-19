@@ -74,7 +74,7 @@ fi
 healthy() {
   for _ in $(seq 1 30); do
     if systemctl is-active --quiet rackticker rackticker-matrix &&
-       curl -fsS -m 3 -o /dev/null http://127.0.0.1:8081/api/state; then
+       curl -fs -m 3 -o /dev/null http://127.0.0.1:8081/api/state 2>/dev/null; then
       return 0
     fi
     sleep 2

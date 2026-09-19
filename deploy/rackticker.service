@@ -19,6 +19,13 @@ RestartSec=5
 TimeoutStopSec=10
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+# 512 MB on a Pi 3A+: keep the display inside a budget so a leak or a heavy plugin
+# can never take the machine (or ssh) down with it, and let it be killed before
+# anything else if memory ever does run out.
+MemoryHigh=200M
+MemoryMax=280M
+OOMScoreAdjust=300
+CPUWeight=200
 StateDirectory=rackticker
 StateDirectoryMode=0700
 UMask=0077

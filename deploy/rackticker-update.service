@@ -7,3 +7,8 @@ Wants=network-online.target
 Type=oneshot
 ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-update.py update
 TimeoutStartSec=20min
+# Updates compile and install; keep them out of the display's way.
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=320M
+OOMScoreAdjust=500

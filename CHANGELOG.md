@@ -2,6 +2,11 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.8 - 2026-09-19
+
+- Memory and priority limits per service: the display, an update or a plugin can no
+  longer take the machine (or ssh) down with them.
+
 ## 1.0.7 - 2026-09-19
 
 - Installing no longer risks running a 512 MB Pi out of memory: the display pauses

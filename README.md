@@ -86,18 +86,40 @@ open it to your LAN, `--output hub75` on a Pi).
 
 ## Install on a Pi
 
-On a fresh Raspberry Pi OS Lite, run [`tools/bootstrap_matrix_pi.sh`](tools/bootstrap_matrix_pi.sh)
-once (it builds the official `rpi-rgb-led-matrix` library, disables onboard audio
-and isolates CPU 3 for panel refresh), reboot, then from your computer:
+1. With [Raspberry Pi Imager](https://www.raspberrypi.com/software/), flash **Raspberry Pi
+   OS Lite (64-bit)**. Under Edit Settings, set a hostname (for example `rackticker`),
+   a user and password, your Wi-Fi, and enable SSH.
+2. Boot it, SSH in once, and run:
 
-```sh
-RACKTICKER_PI_HOST=pi@yourpi.local ./tools/deploy_pi.sh
-```
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/costamesatechsolutions/rackticker/main/tools/install.sh | sudo bash
+   ```
 
-`deploy_pi.sh` uploads the committed revision, checks it, builds the panel
-companion, keeps the previous version for rollback, and restarts the services.
+   It builds the panel driver, reboots, and installs the newest release by itself
+   (about ten minutes on a Pi 3A+). When the panels light up they show the address
+   of the control page, for example `rackticker.local:8081`.
+
+That is the last time you need SSH:
+
+- **Updates:** Settings → Software shows when a new version is out; press Update.
+  The new version is installed beside the running one, and if it does not come up
+  healthy within a minute RackTicker switches back to the old one by itself.
+- **Self-healing:** every day, and at boot, RackTicker checks its installed files
+  against fingerprints taken at install and repairs anything damaged, from the
+  previous version or a fresh download.
+- **Wi-Fi setup mode:** with no Wi-Fi saved, or after five minutes without the
+  saved one (new router, new password, moved house), the panel shows
+  **Wi-Fi setup**: join the `RackTicker-Setup` network with your phone, pick your
+  Wi-Fi on the page that opens, and it reconnects. If the old network comes back,
+  it rejoins by itself. A working connection is never touched.
+- **Factory reset:** Settings → Software. Your old settings are kept as a backup.
+
 Rendering runs under an unprivileged service account; a small root-owned C++
-companion alone owns the GPIO and receives frames over a local socket.
+companion alone owns the GPIO and receives frames over a local socket, and the
+updater and network keeper are separate root services the web page can only ask.
+
+**Developing from a computer:** `RACKTICKER_PI_HOST=pi@rackticker.local ./tools/deploy_pi.sh`
+installs your committed working copy the same way, with the same health check and rollback.
 
 ## Panel tuning
 

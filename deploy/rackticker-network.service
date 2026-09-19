@@ -1,0 +1,16 @@
+[Unit]
+Description=RackTicker network keeper: Wi-Fi setup mode when there is no network
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-network.py
+Restart=always
+RestartSec=10
+RuntimeDirectory=rackticker
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -48,6 +48,16 @@ SLOW_RENDER_SECONDS = .025
 STALL_SECONDS = .1
 
 
+NETWORK_STATE = Path("/run/rackticker/network.json")
+
+
+def read_network():
+    try:
+        return json.loads(NETWORK_STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def local_address():
     """(hostname.local, LAN IPv4 or "") without sending anything: a UDP socket
     'connected' to a public address reveals the outgoing interface's address."""
@@ -110,6 +120,8 @@ class Runtime:
         self.started_at = time.monotonic()
         self.splash_until = 0.0     # the boot splash: where to find the control page
         self.port = None
+        self.network = {}           # what the network keeper reports (Wi-Fi setup mode)
+        self.network_checked = 0.0
         self.splash_address = None
         self.last_state_at = 0.0
         self.last_history_at = 0.0
@@ -526,7 +538,12 @@ class Runtime:
             self.dirty = False
         progress = (self.animation_clock - self.scene_started) / self.transition_duration()
         candidate = transition(self.previous, self.target, progress, self.transition_kind())
-        if now < self.splash_until:
+        if now - self.network_checked >= 5:
+            self.network_checked = now
+            self.network = read_network()
+        if self.network.get("mode") == "setup":
+            candidate = self.setup_screen(now)
+        elif now < self.splash_until:
             candidate = self.splash(now)
         # Compare only on rendered/transition candidates; static frames reuse their image.
         changed = candidate is not self.frame and candidate.tobytes() != self.frame.tobytes()
@@ -576,6 +593,19 @@ class Runtime:
         port = "" if self.port in (80, None) else f":{self.port}"
         for y, line in ((15, f"{host}{port}".upper()), (23, f"{address}{port}" if address else "CONNECTING...")):
             draw_tiny(frame, line, (128 - tiny_width(line)) // 2, y, MUTED if y == 23 else (230, 232, 230))
+        return frame
+
+    def setup_screen(self, now):
+        """Wi-Fi setup mode, from the network keeper: how to give RackTicker a network."""
+        from app.core.fonts import draw_tiny, tiny_width
+        frame = new_frame()
+        centered(frame, "WI-FI SETUP", 1, AMBER)
+        steps = ("ON YOUR PHONE, JOIN", self.network.get("hotspot", "RackTicker-Setup").upper(),
+                 f"THEN OPEN {self.network.get('portal', 'http://10.42.0.1').replace('http://', '')}")
+        blink = int(now) % 2 == 0
+        for y, line, color in ((11, steps[0], MUTED), (17, steps[1], (240, 242, 240) if blink else AMBER),
+                               (25, steps[2], MUTED)):
+            draw_tiny(frame, line, (128 - tiny_width(line)) // 2, y, color)
         return frame
 
     async def run(self):

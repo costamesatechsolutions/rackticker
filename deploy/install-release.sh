@@ -87,9 +87,9 @@ switch_in() {  # $1: release folder to make current; units come from it
     [[ -f "$unit" ]] && install -m 0644 "$unit" /etc/systemd/system/
   done
   systemctl daemon-reload
-  systemctl enable -q rackticker-matrix rackticker rackticker-update.path rackticker-selfheal.service \
+  systemctl enable -q rackticker-matrix rackticker rackticker-update.path rackticker-selfheal.service rackticker-network \
     rackticker-selfheal.timer 2>/dev/null || true
-  systemctl start rackticker-update.path rackticker-selfheal.timer 2>/dev/null || true
+  systemctl start rackticker-update.path rackticker-selfheal.timer rackticker-network 2>/dev/null || true
 }
 
 say "switching to $revision"
@@ -106,6 +106,7 @@ fi
 systemctl start rackticker
 
 if healthy; then
+  rm -rf "$root/failed" /usr/local/bin/rackticker-hub75d.previous
   say "RackTicker $revision is running"
   exit 0
 fi

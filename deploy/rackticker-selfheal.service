@@ -1,6 +1,7 @@
 [Unit]
 Description=Check RackTicker's installed files and repair a damaged install
-Before=rackticker.service
+# Not ordered before rackticker.service: repairing restarts it, and waiting on each
+# other would hang both.
 After=local-fs.target
 
 [Service]

@@ -17,6 +17,7 @@ from rackticker import Game, Plugin, Provider, Snapshot, Team, offload
 
 
 NHL_SCHEDULE_API = "https://api-web.nhle.com/v1/schedule/{date}"
+NHL_SCORE_API = "https://api-web.nhle.com/v1/score/{date}"   # today's games with shots, situation, goals
 ESPN_API = "https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard"
 ESPN_LEAGUES = {
     "NFL": "football/nfl",
@@ -126,6 +127,35 @@ def normalize_nhl_game(raw, timezone_name):
     return {"id": f"NHL:{raw.get('id')}", "game": game, "start": start}
 
 
+def nhl_live(raw):
+    """What a hockey broadcast shows, as display strings: shots on goal, a power
+    play and its clock, an empty net, and the latest goal (scorer, kind)."""
+    extra = {}
+    home, away = raw.get("homeTeam") or {}, raw.get("awayTeam") or {}
+    for side, team in (("home", home), ("away", away)):
+        if isinstance(team.get("sog"), int):
+            extra[f"{side}_sog"] = str(team["sog"])
+    situation = raw.get("situation") or {}
+    for side, key in (("home", "homeTeam"), ("away", "awayTeam")):
+        described = (situation.get(key) or {}).get("situationDescriptions") or []
+        if "PP" in described:
+            extra["pp"] = side
+            extra["pp_time"] = str(situation.get("timeRemaining") or "")[:5]
+        if "EN" in described:
+            extra["empty_net"] = side   # that team has pulled its goalie for an extra skater
+    goals = [goal for goal in raw.get("goals") or [] if isinstance(goal, dict)]
+    extra["goal_count"] = str(len(goals))
+    if goals:
+        last = goals[-1]
+        name = str(((last.get("lastName") or {}).get("default")) or ((last.get("name") or {}).get("default")) or "")
+        total = last.get("goalsToDate")
+        extra["last_goal"] = f"{name.upper()}{f' ({total})' if isinstance(total, int) else ''}"[:24]
+        extra["last_goal_team"] = str(last.get("teamAbbrev") or (last.get("teamAbbrev") or {}))[:4]
+        kind = "EN" if last.get("goalModifier") == "empty-net" else str(last.get("strength") or "").upper()
+        extra["last_goal_kind"] = {"PP": "POWER-PLAY GOAL", "SH": "SHORTHANDED GOAL", "EN": "EMPTY-NET GOAL"}.get(kind, "GOAL")
+    return extra
+
+
 def normalize_espn_event(raw, league, timezone_name):
     if not isinstance(raw, dict) or not raw.get("competitions"):
         raise ValueError("Invalid ESPN event")
@@ -217,8 +247,8 @@ def batting_side(game):
 
 
 def play_call(game, before):
-    """A big play between two looks at a live game, as (call, side that made it),
-    or None. Plays are read from ESPN's last-play text and, since a poll can miss
+    """A big play between two looks at a live game, as (call, side that made it,
+    who: the scorer or hitter, or ""), or None. Plays are read from ESPN's last-play text and, since a poll can miss
     that line, from what changed: two outs at once, the bases cleared by a homer."""
     extra, old = game.extra, before.extra
     text = extra.get("play", "").lower() if extra.get("play_id") != old.get("play_id") else ""
@@ -227,23 +257,30 @@ def play_call(game, before):
         fielding = {"home": "away", "away": "home"}.get(batting)
         same_half = game.detail == before.detail and batting
         if "triple play" in text:
-            return "TRIPLE PLAY", fielding
+            return "TRIPLE PLAY", fielding, ""
         if "double play" in text or (same_half and "outs" in extra and "outs" in old
                                       and int(extra["outs"]) - int(old["outs"]) == 2):
-            return "DOUBLE PLAY", fielding
+            return "DOUBLE PLAY", fielding, ""
         if batting:
             runs = getattr(game, batting).score - getattr(before, batting).score
             runners = old.get("bases", "000").count("1")
             homer = "homered" in text or "home run" in text or "grand slam" in text or (
                 same_half and runs >= 1 and extra.get("bases") == "000" and runs == runners + 1)
             if homer and runs >= 1:
-                return ("GRAND SLAM" if runs == 4 or "grand slam" in text else "HOME RUN"), batting
+                return ("GRAND SLAM" if runs == 4 or "grand slam" in text else "HOME RUN"), batting, extra.get("batter", "")
+    elif game.league == "NHL":
+        if int(extra.get("goal_count") or 0) > int(old.get("goal_count") or 0):
+            team = extra.get("last_goal_team")
+            side = "home" if team == game.home.abbreviation else "away" if team == game.away.abbreviation else None
+            return extra.get("last_goal_kind", "GOAL"), side, extra.get("last_goal", "")
+        if extra.get("pp") and extra.get("pp") != old.get("pp"):
+            return "POWER PLAY", extra["pp"], ""
     elif game.league in ("NFL", "NCAAF") and text:
         defense = {"home": "away", "away": "home"}.get(old.get("ball"))
         if "intercepted" in text:
-            return "INTERCEPTION", defense
+            return "INTERCEPTION", defense, ""
         if "fumble" in text and extra.get("ball") and extra.get("ball") != old.get("ball"):
-            return "FUMBLE", defense  # lost: the other team has the ball now
+            return "FUMBLE", defense, ""  # lost: the other team has the ball now
     return None
 
 
@@ -350,10 +387,17 @@ def parse_scoreboards(feeds, timezone_name):
         if kind == "nhl":
             rows = [game for day in payload.get("gameWeek", []) if isinstance(day, dict)
                     for game in day.get("games", [])]
+        elif kind == "nhl-score":
+            rows = payload.get("games", [])
         else:
             rows = payload.get("events", [])
         for event in rows if isinstance(rows, list) else []:
             try:
+                if kind == "nhl-score":   # today's games again, with shots, situation and goals
+                    item = normalize_nhl_game(event, timezone_name)
+                    item["game"] = replace(item["game"], extra={**item["game"].extra, **nhl_live(event)})
+                    games.append(item)
+                    continue
                 games.append(normalize_nhl_game(event, timezone_name) if kind == "nhl"
                              else normalize_espn_event(event, league, timezone_name))
             except (ValueError, TypeError, KeyError):
@@ -389,10 +433,11 @@ class FreeSports(Provider):
         self.flashes = {}     # game id -> the latest big play, shown on that game's card
         self.celebration = None
 
-    def _celebrate(self, call, team, other, league):
+    def _celebrate(self, call, team, other, league, who=""):
+        score = f"{team.abbreviation} {team.score}  {other.abbreviation} {other.score}"
         self.celebration = {"call": call, "team": team.abbreviation, "color": team.color,
                             "league": league, "at": time.monotonic(),
-                            "line": f"{team.abbreviation} {team.score}  {other.abbreviation} {other.score}"}
+                            "line": f"{who}  {score}" if who else score}
         if not self.context.emit_event("sportsbook", 12):
             self.context.emit_event("sports", 12)
 
@@ -409,11 +454,11 @@ class FreeSports(Provider):
             teams = {"home": (game.home, game.away), "away": (game.away, game.home)}
             play = play_call(game, before)
             if play and play[1]:
-                call, side = play
+                call, side, who = play
                 team, other = teams[side]
-                self.flashes[item["id"]] = {"call": call, "team": team.abbreviation, "at": now}
-                if team.abbreviation in favorites:
-                    self._celebrate(call, team, other, game.league)
+                self.flashes[item["id"]] = {"call": call, "team": team.abbreviation, "who": who, "at": now}
+                if team.abbreviation in favorites and call != "POWER PLAY":
+                    self._celebrate(call, team, other, game.league, who)
                     continue
             for side, (team, other) in teams.items():
                 call = score_call(game.league, team.score - getattr(before, side).score)
@@ -425,7 +470,7 @@ class FreeSports(Provider):
             flash = self.flashes.get(item["id"])
             if flash:
                 extra = {**item["game"].extra, "flash": flash["call"], "flash_team": flash["team"],
-                         "flash_at": f"{flash['at']:.0f}"}
+                         "flash_who": flash.get("who", ""), "flash_at": f"{flash['at']:.0f}"}
                 item["game"] = replace(item["game"], extra=extra)
 
     async def _raw(self, url):
@@ -439,6 +484,8 @@ class FreeSports(Provider):
             local_date = datetime.now(ZoneInfo(self.context.settings["timezone"])).date()
             requests.append(self._raw(NHL_SCHEDULE_API.format(date=local_date.isoformat())))
             kinds.append(("nhl", None))
+            requests.append(self._raw(NHL_SCORE_API.format(date=local_date.isoformat())))
+            kinds.append(("nhl-score", None))
         for league in sorted(leagues & ESPN_LEAGUES.keys()):
             requests.append(self._raw(ESPN_API.format(path=ESPN_LEAGUES[league])))
             kinds.append(("espn", league))

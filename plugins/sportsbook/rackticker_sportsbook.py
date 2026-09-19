@@ -124,7 +124,7 @@ class Sportsbook(Module):
         seconds = context.config["plugins"][self.name]["card_seconds"]
         flash = extra.get("flash")
         if flash and time.time() - float(extra.get("flash_at") or 0) < FLASH_SECONDS and local < BANNER_SECONDS:
-            self._banner(body, flash, extra.get("flash_team", ""), game, t)
+            self._banner(body, flash, extra.get("flash_team", ""), game, t, extra.get("flash_who", ""))
         else:
             self._matchup(body, game, extra, 1 if local >= seconds / 2 else 0)
         roll = round((1 - ease_out(local / .35)) * BODY_HEIGHT) if local < .35 else 0
@@ -149,6 +149,10 @@ class Sportsbook(Module):
         detail = game.detail
         if live and extra.get("down"):  # football: the down and distance, like the TV bar
             detail, right = f"{game.detail}  {extra['down']}", extra.get("spot", "")
+        elif game.status != "pregame" and extra.get("away_sog"):  # hockey: shots on goal
+            right = f"SOG {extra['away_sog']}-{extra['home_sog']}"
+        elif live and extra.get("batter"):  # baseball: who is at bat
+            right = f"AB {extra['batter'].split()[-1].upper()}"
         status = fit_tiny(detail, 128 - x - (tiny_width(right) + 4 if right else 0))
         draw_tiny(frame, status, x, 1, GREEN if live else LAMP if game.status == "pregame" else DULL)
         if right and x + tiny_width(status) + 4 + tiny_width(right) <= 127:
@@ -185,6 +189,8 @@ class Sportsbook(Module):
                 self._diamond(body, extra)
             else:
                 draw_text(body, "-", 61, 6, DULL)
+            if game.status == "live":
+                self._hockey(body, extra, math.floor(time.time() * 2) % 2 == 0)
             ball = extra.get("ball") if game.status == "live" else None
             if ball:  # who has the ball: a football beside their logo, red inside the 20
                 x = 18 if ball == "away" else 104
@@ -229,14 +235,30 @@ class Sportsbook(Module):
             draw.rectangle((x, 15, x + 2, 17), fill=RED if index < outs else (60, 44, 16))
 
     @staticmethod
-    def _banner(body, call, team, game, t):
+    def _hockey(body, extra, blink):
+        """Beside each logo: PP and its clock for the team on the power play, EN for a
+        team that has pulled its goalie."""
+        for side, x, align in (("away", 18, "left"), ("home", 109, "right")):
+            lines = []
+            if extra.get("pp") == side:
+                lines = [("PP", LAMP if blink else WHITE), (extra.get("pp_time", "").lstrip("0") or "", WHITE)]
+            elif extra.get("empty_net") == side:
+                lines = [("EN", RED if blink else WHITE)]
+            for row, (text, color) in enumerate(lines):
+                if text:
+                    left = x if align == "left" else x - tiny_width(text) + 1
+                    draw_tiny(body, text, left, 3 + row * 7, color)
+
+    @staticmethod
+    def _banner(body, call, team, game, t, who=""):
         """A big play in this game, flashed before the matchup: DOUBLE PLAY, GRAND SLAM."""
         draw = ImageDraw.Draw(body)
         on = math.floor(t * 4) % 2 == 0
         draw.rectangle((0, 0, 127, BODY_HEIGHT - 1), outline=LAMP if on else RED)
         width = text_width(call)
         draw_text(body, call, 64 - width // 2, 2, LAMP if on else WHITE)
-        line = f"{team}  {game.away.abbreviation} {game.away.score}-{game.home.score} {game.home.abbreviation}".strip()
+        score = f"{game.away.abbreviation} {game.away.score}-{game.home.score} {game.home.abbreviation}"
+        line = f"{who}  {score}" if who and tiny_width(f"{who}  {score}") <= 124 else f"{who or team}  {score}".strip()
         draw_tiny(body, fit_tiny(line, 124), 64 - tiny_width(fit_tiny(line, 124)) // 2, 11, WHITE)
 
     def _party_frame(self, party, age, t):

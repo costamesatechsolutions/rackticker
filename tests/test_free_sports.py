@@ -122,12 +122,12 @@ class LivePlayTests(unittest.TestCase):
     def test_double_play_from_two_outs_at_once(self):
         before = self.mlb(1, 0, "TOP 3RD", outs="0", bases="100", play_id="1")
         after = self.mlb(1, 0, "TOP 3RD", outs="2", bases="000", play_id="2", play="Pitch 1 : Strike 1")
-        self.assertEqual(self.sports.play_call(after, before), ("DOUBLE PLAY", "home"))  # SD fields in the top
+        self.assertEqual(self.sports.play_call(after, before), ("DOUBLE PLAY", "home", ""))  # SD fields in the top
 
     def test_grand_slam_from_the_bases_clearing(self):
         before = self.mlb(0, 0, "BOT 5TH", outs="1", bases="111", play_id="1")
         after = self.mlb(4, 0, "BOT 5TH", outs="1", bases="000", play_id="2")
-        self.assertEqual(self.sports.play_call(after, before), ("GRAND SLAM", "home"))
+        self.assertEqual(self.sports.play_call(after, before), ("GRAND SLAM", "home", ""))
 
     def test_quiet_pitch_is_no_play(self):
         before = self.mlb(0, 0, "BOT 5TH", outs="1", bases="100", play_id="1")
@@ -138,4 +138,26 @@ class LivePlayTests(unittest.TestCase):
         before = Game(Team("KC", 7, "#E31837"), Team("LV", 3, "#A5ACAF"), "live", "Q2 5:00", "NFL", "", {"ball": "home", "play_id": "1"})
         after = Game(Team("KC", 7, "#E31837"), Team("LV", 3, "#A5ACAF"), "live", "Q2 4:51", "NFL", "",
                      {"ball": "away", "play_id": "2", "play": "P.Mahomes pass INTERCEPTED by M.Crosby"})
-        self.assertEqual(self.sports.play_call(after, before), ("INTERCEPTION", "away"))
+        self.assertEqual(self.sports.play_call(after, before), ("INTERCEPTION", "away", ""))
+
+
+class HockeyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sports = load_plugin_module()
+
+    def test_nhl_live_reads_shots_power_play_and_the_last_goal(self):
+        raw = {"homeTeam": {"abbrev": "ANA", "sog": 21}, "awayTeam": {"abbrev": "LAK", "sog": 30},
+               "situation": {"homeTeam": {"situationDescriptions": ["PP"]}, "awayTeam": {}, "timeRemaining": "01:14"},
+               "goals": [{"teamAbbrev": "ANA", "lastName": {"default": "Terry"}, "goalsToDate": 12, "strength": "pp"}]}
+        extra = self.sports.nhl_live(raw)
+        self.assertEqual((extra["home_sog"], extra["away_sog"], extra["pp"], extra["pp_time"]), ("21", "30", "home", "01:14"))
+        self.assertEqual((extra["last_goal"], extra["last_goal_kind"], extra["goal_count"]), ("TERRY (12)", "POWER-PLAY GOAL", "1"))
+
+    def test_goal_and_power_play_calls(self):
+        game = lambda extra, home=1: Game(Team("ANA", home, "#fc4c02"), Team("LAK", 0, "#a2aaad"), "live", "P2 10:00", "NHL", "", extra)
+        before = game({"goal_count": "0"}, 0)
+        after = game({"goal_count": "1", "last_goal": "TERRY (12)", "last_goal_team": "ANA", "last_goal_kind": "GOAL"})
+        self.assertEqual(self.sports.play_call(after, before), ("GOAL", "home", "TERRY (12)"))
+        self.assertEqual(self.sports.play_call(game({"goal_count": "1", "pp": "away"}), game({"goal_count": "1"})),
+                         ("POWER PLAY", "away", ""))

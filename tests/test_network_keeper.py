@@ -58,3 +58,17 @@ class UnitTests(unittest.TestCase):
             for name in re.findall(r"^RuntimeDirectory=(\S+)", unit.read_text(), re.MULTILINE):
                 self.assertNotIn(name, seen, f"{unit.name} and {seen.get(name)} share /run/{name}")
                 seen[name] = unit.name
+
+
+class QuickBootTests(unittest.TestCase):
+    def test_three_quick_unplugs_clear_the_password(self):
+        import tempfile
+        folder = Path(tempfile.mkdtemp())
+        KEEPER.QUICK_BOOTS, KEEPER.ACCESS = folder / "quick-boots", folder / "access.json"
+        KEEPER.ACCESS.write_text("{}")
+        self.assertEqual(KEEPER.count_quick_boot(), "")
+        self.assertEqual(KEEPER.count_quick_boot(), "")
+        self.assertTrue(KEEPER.ACCESS.exists())
+        self.assertEqual(KEEPER.count_quick_boot(), "PASSWORD CLEARED")
+        self.assertFalse(KEEPER.ACCESS.exists())
+        self.assertEqual(KEEPER.QUICK_BOOTS.read_text(), "0")

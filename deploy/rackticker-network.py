@@ -40,6 +40,35 @@ DROP_GRACE = 300         # seconds offline before setup opens when a network is 
 RETRY_SAVED = 240        # seconds between tries of the saved network while in setup
 QUIET_AFTER_VISIT = 180  # do not drop the setup network while someone is using the page
 TICK = 10
+# Forgot the control page's password and no SSH? Unplug RackTicker as soon as its
+# panel lights up, three times in a row: the next start clears the password.
+QUICK_BOOTS = Path("/var/lib/rackticker/quick-boots")
+ACCESS = Path("/var/lib/rackticker/access.json")
+SETTLED = 90   # seconds of running that mean "this was not a quick unplug"
+
+
+def count_quick_boot():
+    """Count this start; on the third quick one in a row, clear the password."""
+    try:
+        count = int(QUICK_BOOTS.read_text().strip() or 0) + 1
+    except (OSError, ValueError):
+        count = 1
+    if count >= 3:
+        cleared = ACCESS.exists()
+        ACCESS.unlink(missing_ok=True)
+        count = 0
+        notice = "PASSWORD CLEARED" if cleared else ""
+    else:
+        notice = ""
+    try:
+        QUICK_BOOTS.parent.mkdir(parents=True, exist_ok=True)
+        with open(QUICK_BOOTS, "w") as stream:
+            stream.write(str(count))
+            stream.flush()
+            os.fsync(stream.fileno())   # a power cut comes next: make it stick
+    except OSError:
+        pass
+    return notice
 
 
 def nmcli(*args, timeout=45):
@@ -153,6 +182,8 @@ class Keeper:
         self.message = ""
         self.lock = threading.Lock()
         self.portal = None
+        self.notice = ""          # shown on the panel's start-up screen
+        self.settled = False
 
     # --- decisions ---------------------------------------------------------------
 
@@ -302,7 +333,7 @@ margin:6px 0}}button{{background:#e0561c;color:#fff;border:0;border-radius:6px}}
     def publish(self, is_online, ssid, address):
         STATE.parent.mkdir(parents=True, exist_ok=True)
         mode = "online" if is_online else "setup" if self.setup else "offline"
-        body = {"mode": mode, "ssid": ssid, "address": address, "hotspot": HOTSPOT,
+        body = {"mode": mode, "ssid": ssid, "address": address, "hotspot": HOTSPOT, "notice": self.notice,
                 "portal": f"http://{AP_IP}", "message": self.message, "at": int(time.time())}
         temporary = STATE.with_suffix(".tmp")
         temporary.write_text(json.dumps(body))
@@ -311,6 +342,12 @@ margin:6px 0}}button{{background:#e0561c;color:#fff;border:0;border-radius:6px}}
 
     def tick(self, act=True):
         now = time.monotonic()
+        if act and not self.settled and now - self.started >= SETTLED:
+            self.settled = True   # running a while: the next start is not a quick unplug
+            try:
+                QUICK_BOOTS.write_text("0")
+            except OSError:
+                pass
         is_online, ssid, address = online()
         self.offline_since = None if is_online else (self.offline_since or now)
         profiles = saved()
@@ -339,6 +376,7 @@ def main():
         return
     if os.geteuid() != 0:
         sys.exit("run as root")
+    keeper.notice = count_quick_boot()
     # Leftovers from a crash or power cut: never start with the setup network up.
     if any(name == HOTSPOT for _, name, _ in active() or []):
         keeper.close_setup()

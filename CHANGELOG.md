@@ -2,6 +2,12 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.3 - 2026-09-19
+
+- Forgot the password? Unplug RackTicker as soon as its panel lights up, three
+  times in a row, and it is cleared. No computer needed.
+- Dark colours no longer flicker in scan lines at low night brightness.
+
 ## 1.0.2 - 2026-09-19
 
 - Optional control-page password (Settings → Software); stored only as a salted hash.

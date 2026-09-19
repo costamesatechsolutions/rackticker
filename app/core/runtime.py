@@ -579,7 +579,7 @@ class Runtime:
         self.clock_debt -= dt
         return dt
 
-    def show_splash(self, seconds=12.0):
+    def show_splash(self, seconds=15.0):
         """On the panel at boot: RACKTICKER and the address of its control page."""
         self.splash_until = time.monotonic() + seconds
 
@@ -591,7 +591,10 @@ class Runtime:
         centered(frame, "RACKTICKER", 2, AMBER)
         from app.core.fonts import draw_tiny, tiny_width
         port = "" if self.port in (80, None) else f":{self.port}"
-        for y, line in ((15, f"{host}{port}".upper()), (23, f"{address}{port}" if address else "CONNECTING...")):
+        notice = read_network().get("notice")
+        lines = ((15, notice), (23, f"{host}{port}".upper())) if notice else \
+            ((15, f"{host}{port}".upper()), (23, f"{address}{port}" if address else "CONNECTING..."))
+        for y, line in lines:
             draw_tiny(frame, line, (128 - tiny_width(line)) // 2, y, MUTED if y == 23 else (230, 232, 230))
         return frame
 

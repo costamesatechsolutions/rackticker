@@ -2,6 +2,10 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.4 - 2026-09-19
+
+- The unplug-three-times password reset counts real power-ups only.
+
 ## 1.0.3 - 2026-09-19
 
 - Forgot the password? Unplug RackTicker as soon as its panel lights up, three

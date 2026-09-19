@@ -163,10 +163,16 @@ def ask_root_to_reset(request, scope):
     """The web app is unprivileged: leave the request for the root-owned helper."""
     folder = reset_dir(request)
     if not (folder.is_dir() and os.access(folder, os.W_OK)):
-        raise ValueError("This RackTicker cannot reset its own Wi-Fi (it is not a Pi install)")
+        raise ValueError("Only a Pi installed by the RackTicker installer can do that to itself")
     temporary = folder / "request.tmp"
     temporary.write_text(json.dumps({"scope": scope, "asked_at": int(time.time())}))
     temporary.replace(folder / "request.json")   # the helper starts when this appears
+
+
+async def restart_display(request):
+    """Restart the display service. The root helper does it, so it is not taken for a crash."""
+    ask_root_to_reset(request, "restart")
+    return web.json_response({"restarting": True})
 
 
 async def factory_reset(request):
@@ -215,4 +221,5 @@ def add_routes(app, runtime_key, store_key, config_path):
     app[CONFIG_PATH] = Path(config_path)
     app.add_routes([web.get("/api/software", software_get), web.post("/api/software/update", software_update),
                     web.post("/api/software/reset", factory_reset),
+                    web.post("/api/software/restart", restart_display),
                     web.get("/api/timezones", timezones_get), web.post("/api/timezone", timezone_post)])

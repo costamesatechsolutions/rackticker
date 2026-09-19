@@ -365,7 +365,7 @@ function placePicker(get, set, {allowHome = false} = {}) {
           if (query.length < 2) { results.hidden = true; return; }
           const {places} = await api(`places?q=${encodeURIComponent(query)}`);
           results.replaceChildren(...places.map((place) => h('button', {type: 'button', onclick: () => {
-            set(place.latitude, place.longitude, place.name); markDirty(); paint();
+            set(place.latitude, place.longitude, place.name, place.timezone); markDirty(); paint();
           }}, place.name, h('small', {text: `${place.latitude}, ${place.longitude}`}))));
           results.hidden = !places.length;
         }), 300);
@@ -715,6 +715,12 @@ function renderResetChoices(choices) {
   note();
 }
 
+async function restartDisplay() {
+  if (!confirm('Restart the display? The panel goes dark for a few seconds and this page reconnects by itself.')) return;
+  await api('software/restart', 'POST', {});
+  toast('Restarting the display…');
+}
+
 async function factoryReset() {
   const scope = $('reset-scope')?.value || 'settings';
   const question = RESET_CONFIRM[scope]
@@ -773,6 +779,48 @@ function renderLog() {
   $('fault').checked = state.provider_fault;
 }
 
+// --- welcome: shown once, until RackTicker knows where it is ----------------------
+
+let welcomePlace = null;
+
+function needsWelcome() {
+  return config && !config.location.latitude && !config.location.longitude
+    && localStorage.getItem('welcome-done') !== 'yes';
+}
+
+function showWelcome(on) {
+  $('welcome').hidden = !on;
+  document.querySelector('.tabs').hidden = on;
+  for (const panel of document.querySelectorAll('main .page')) {
+    if (panel.id !== 'welcome') panel.hidden = on || panel.hidden;
+  }
+  if (!on) return;
+  $('welcome-place').replaceChildren(placePicker(
+    () => [welcomePlace?.latitude || 0, welcomePlace?.longitude || 0, welcomePlace?.name || ''],
+    (latitude, longitude, name, timezone) => {
+      welcomePlace = {latitude, longitude, name, timezone};
+      $('welcome-save').disabled = false;
+      $('welcome-timezone').hidden = !timezone;
+      $('welcome-timezone').textContent = timezone ? `The clock will be set to ${timezone}.` : '';
+    }));
+}
+
+async function finishWelcome(place) {
+  if (place) {
+    config.location = {name: place.name, latitude: place.latitude, longitude: place.longitude};
+    config = await api('config', 'PUT', config);
+    saved = clone(config);
+    clean();
+    // The place search knows its time zone, so the clock is right without being asked.
+    if (place.timezone) await api('timezone', 'POST', {timezone: place.timezone}).catch(() => {});
+  }
+  localStorage.setItem('welcome-done', 'yes');
+  showWelcome(false);
+  renderAll();
+  showTab('now');
+  if (place) toast(`RackTicker is set up for ${place.name}.`);
+}
+
 // --- wiring ----------------------------------------------------------------------
 
 function renderAll() {
@@ -793,7 +841,11 @@ async function init() {
   new ResizeObserver(draw).observe($('window'));
   for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => showTab(button.dataset.tab));
   showTab(['now', 'screens', 'plugins', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'now');
+  if (needsWelcome()) showWelcome(true);
+  $('welcome-save').onclick = guard(() => finishWelcome(welcomePlace));
+  $('welcome-skip').onclick = guard(() => finishWelcome(null));
   $('factory-reset').onclick = guard(factoryReset);
+  $('restart-display').onclick = guard(restartDisplay);
   $('access-save').onclick = guard(saveAccess);
   $('pause').onclick = guard(() => control(state?.scheduler.paused ? 'resume' : 'pause'));
   $('next').onclick = guard(() => control('next'));

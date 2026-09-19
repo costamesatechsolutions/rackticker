@@ -213,5 +213,39 @@ class WebRequestTests(unittest.TestCase):
             self.api.ask_root_to_reset(self.request, "network")
 
 
+class PanelNoticeTests(unittest.TestCase):
+    """A failed update has to reach the panel: most owners never open the page."""
+
+    def notice(self, body, age=0):
+        from app.core import runtime
+        folder = Path(tempfile.mkdtemp()) / "status.json"
+        folder.write_text(json.dumps(body))
+        with mock.patch.object(runtime, "UPDATE_STATUS", folder):
+            return runtime.software_notice(now=body.get("at", 0) + age)
+
+    def test_a_failed_update_is_said_on_the_panel(self):
+        self.assertEqual(self.notice({"error": True, "at": 1000, "stage": "error"}), "UPDATE FAILED")
+
+    def test_an_update_that_worked_says_nothing(self):
+        self.assertEqual(self.notice({"error": False, "at": 1000, "stage": "done"}), "")
+
+    def test_an_old_failure_stops_being_news(self):
+        self.assertEqual(self.notice({"error": True, "at": 1000}, age=25 * 3600), "")
+
+    def test_no_history_at_all_is_not_a_problem(self):
+        from app.core import runtime
+        with mock.patch.object(runtime, "UPDATE_STATUS", Path("/nonexistent/status.json")):
+            self.assertEqual(runtime.software_notice(), "")
+
+    def test_the_temperature_is_this_device_s_own_and_survives_a_pi_less_computer(self):
+        from app.core import runtime
+        spot = Path(tempfile.mkdtemp()) / "temp"
+        spot.write_text("58312\n")
+        with mock.patch.object(runtime, "THERMAL", spot):
+            self.assertAlmostEqual(runtime.read_temperature(), 58.312, places=3)
+        with mock.patch.object(runtime, "THERMAL", Path("/nonexistent/temp")):
+            self.assertEqual(runtime.read_temperature(fallback=25.6), 25.6)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@
     rackticker-reset.py everything  settings, plugins, password and Wi-Fi: a Pi as it came
     rackticker-reset.py identity    regenerate what must be unique per device (first boot)
     rackticker-reset.py ship        everything, plus wipe identity and logs, then power off
+    rackticker-reset.py restart     restart the display, without it counting as a crash
     rackticker-reset.py request     carry out what the control page asked for (systemd path)
 
 Settings and plugins alone are reset by the web app itself; it runs unprivileged and
@@ -35,6 +36,8 @@ HOME = Path("/home/rackticker")               # the service account plugins keep
 IDENTITY_WANTED = DATA / "new-identity"        # left behind by `ship`, read on the next boot
 HOTSPOT = "RackTicker-Setup"
 SCOPES = ("network", "everything", "ship")
+# Not a reset, but the same errand: something only root can do that the page may ask for.
+ERRANDS = ("restart",)
 
 
 def status(stage, message, error=False, **extra):
@@ -184,7 +187,18 @@ def wipe_traces():
 
 # ---------------------------------------------------------------- the scopes
 
+def restart_display():
+    """Restart the display the way a person with ssh would, and without being mistaken
+    for a crash: the counter that decides a bad version is cleared first."""
+    subprocess.run(["systemctl", "reset-failed", "rackticker"])
+    subprocess.run(["systemctl", "restart", "--no-block", "rackticker"])
+    status("done", "Restarting the display")
+    return 0
+
+
 def reset(scope):
+    if scope in ERRANDS:
+        return restart_display()
     if scope not in SCOPES:
         status("error", f"There is no reset called {scope!r}", True)
         return 1

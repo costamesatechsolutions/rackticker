@@ -74,6 +74,7 @@ class SystemStatus:
     internet: bool = True
     home_assistant: bool = True
     rack_temp_c: float = 25.6
+    notice: str = ""          # something the owner should know, in a few words
 
 
 @dataclass(frozen=True)

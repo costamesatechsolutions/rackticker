@@ -11,6 +11,12 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 - A device now makes its own machine id, ssh host keys and name on first boot after
   that reset, named after its Pi (`rackticker-3c4d`). Cards cloned from one image
   no longer share an identity, an ssh host key or a `.local` name.
+- A welcome step on first open: pick where the rack is and RackTicker sets its
+  location and its clock in one go.
+- **Restart the display** in Settings, for the times a restart is all it needs.
+- The Status screen now reports this device instead of placeholders: whether it is
+  really online, its own temperature, and a failed update, which used to be visible
+  only on the control page.
 - Photographs of a built unit in the README.
 
 ## 1.1.0 - 2026-09-19

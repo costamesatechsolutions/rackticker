@@ -58,6 +58,33 @@ def read_network():
         return {}
 
 
+UPDATE_STATUS = Path("/var/lib/rackticker/update/status.json")
+THERMAL = Path("/sys/class/thermal/thermal_zone0/temp")
+NOTICE_SECONDS = 24 * 3600      # a problem is worth saying for a day, not forever
+
+
+def read_temperature(fallback=25.6):
+    try:
+        return int(THERMAL.read_text().strip()) / 1000
+    except (OSError, ValueError):
+        return fallback
+
+
+def software_notice(now=None):
+    """A few words for the panel when the last update or repair went wrong.
+
+    Only the panel is looked at by people who will never open the web page, so a
+    failed update has to be visible there or it is invisible."""
+    try:
+        status = json.loads(UPDATE_STATUS.read_text())
+    except (OSError, ValueError):
+        return ""
+    now = now if now is not None else time.time()
+    if not status.get("error") or now - status.get("at", 0) > NOTICE_SECONDS:
+        return ""
+    return "UPDATE FAILED"
+
+
 def local_address():
     """(hostname.local, LAN IPv4 or "") without sending anything: a UDP socket
     'connected' to a public address reveals the outgoing interface's address."""
@@ -373,7 +400,26 @@ class Runtime:
         while True:
             async with self.provider_lock:
                 await asyncio.gather(*(self.refresh_provider(name) for name in self.providers))
+            if self.system_scenario == "normal":
+                self.read_system()
             await asyncio.sleep(5)
+
+    def read_system(self):
+        """What the Status screen reports, from this device rather than from hope."""
+        was = self.system
+        network = read_network()
+        # The keeper's word when it has one; otherwise whether the feeds are reaching anyone.
+        if network.get("mode") == "setup":
+            internet = False
+        elif "online" in network:
+            internet = bool(network["online"])
+        else:
+            live = [s for s in self.snapshots.values() if s.source != "mock"]
+            internet = not live or any(not s.error for s in live)
+        assistant = self.home_assistant.status.get("state") == "connected" if self.home_assistant else True
+        self.system = SystemStatus(internet, assistant, read_temperature(was.rack_temp_c), software_notice())
+        if self.system != was:
+            self.dirty = True
 
     def apply_config(self, config):
         self.config = config

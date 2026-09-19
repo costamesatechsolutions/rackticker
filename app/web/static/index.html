@@ -23,6 +23,22 @@
   </header>
 
   <main>
+    <!-- WELCOME: shown once, until this RackTicker knows where it is -->
+    <section class="page" id="welcome" hidden>
+      <div class="card">
+        <h2>Welcome to RackTicker</h2>
+        <p class="hint">One thing to set and it knows what to show you: where this rack is. Weather, flights
+          overhead, freeway signs and kick-off times all follow from it. Nothing leaves your network except
+          requests for the data itself.</p>
+        <div class="fields">
+          <div class="field"><span class="label">Where is this rack?</span><div id="welcome-place"></div></div>
+          <p class="hint" id="welcome-timezone" hidden></p>
+          <div class="row"><button class="btn primary" id="welcome-save" type="button" disabled>Save and start</button>
+            <button class="btn small quiet" id="welcome-skip" type="button">Skip for now</button></div>
+        </div>
+      </div>
+    </section>
+
     <!-- NOW: what the panel shows, and quick control -->
     <section class="page" id="tab-now" role="tabpanel">
       <div class="card">
@@ -153,6 +169,7 @@ python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
           <div class="row"><label for="timezone" class="label">Time zone</label><select id="timezone" class="grow"></select><button class="btn small" id="timezone-save" type="button">Set</button></div>
           <div class="row"><input type="password" id="access-password" autocomplete="new-password" placeholder="Control page password" class="grow"><button class="btn small" id="access-save" type="button">Set password</button></div>
           <p class="hint" id="access-note">Optional. Anyone opening this page must then enter it (any user name). Leave empty and press Set to remove it.</p>
+          <div class="row"><button class="btn small quiet" id="restart-display" type="button">Restart the display</button><span class="hint grow">Start the display again without unplugging anything. The control page comes back after a few seconds.</span></div>
           <div class="row"><label for="reset-scope" class="label">Reset</label><select id="reset-scope" class="grow"></select><button class="btn small quiet" id="factory-reset" type="button">Reset…</button></div>
           <p class="hint" id="reset-note">Back to the default settings and playlist, with installed plugins removed. Your old settings are kept as a backup; Wi-Fi is not changed.</p>
         </div>

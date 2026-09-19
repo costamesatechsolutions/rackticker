@@ -2,6 +2,10 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.0.10 - 2026-09-19
+
+- The parsing helper is recycled, so it no longer grows to a third of the memory in use.
+
 ## 1.0.9 - 2026-09-19
 
 - An install is no longer mistaken for a crash: rolling back needs repeated restarts

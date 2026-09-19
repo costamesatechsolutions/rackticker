@@ -31,12 +31,22 @@ def enable():
     _enabled = True
 
 
+# The helper imports each plugin's module the first time it parses for it, so its
+# memory grows with the number of screens. Starting a fresh one every so often hands
+# that memory back; on a 512 MB Pi the helper had grown to a third of what was in use.
+TASKS_PER_HELPER = 250
+
+
 def _executor():
     global _pool
     if _pool is None:
         # "spawn" starts a clean interpreter: no inherited threads, sockets or GPIO.
-        _pool = concurrent.futures.ProcessPoolExecutor(
-            max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+        context = multiprocessing.get_context("spawn")
+        try:
+            _pool = concurrent.futures.ProcessPoolExecutor(
+                max_workers=1, mp_context=context, max_tasks_per_child=TASKS_PER_HELPER)
+        except TypeError:   # Python 3.10 cannot recycle workers
+            _pool = concurrent.futures.ProcessPoolExecutor(max_workers=1, mp_context=context)
     return _pool
 
 

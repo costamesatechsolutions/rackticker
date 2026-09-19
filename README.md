@@ -6,6 +6,8 @@
 
 ![RackTicker cycling through its screens on live data](docs/demo.gif)
 
+![RackTicker installed in a 19-inch rack](docs/photos/in-rack.jpg)
+
 Live LED signage for your server rack. RackTicker turns two 64×32 RGB LED panels and a Raspberry Pi into a 128×32 ticker
 that lives in a 19-inch rack: stock tape, odds boards, news, flights overhead,
 freeway traffic, weather, arcade games and whatever you build next. Every screen is
@@ -62,6 +64,13 @@ so crawls step exactly one LED per frame.
 The panel frame is always exactly 128×32 RGB. Typography, clipping and motion are
 designed at that size, so what the emulator shows is what the panels show.
 
+| The 2U face | Behind it |
+| --- | --- |
+| ![The printed 2U face](docs/photos/front.jpg) | ![The Pi, adapter board and ADS-B receiver behind the face](docs/photos/inside.jpg) |
+
+Two panels, the adapter board on the Pi's header, one barrel jack for power, and
+an ADS-B stick if you want the planes overhead to be the ones actually overhead.
+
 ## Try it on your computer
 
 Python 3.10 or newer:
@@ -115,11 +124,35 @@ That is the last time you need SSH:
   **Wi-Fi setup**: join the `RackTicker-Setup` network with your phone, pick your
   Wi-Fi on the page that opens, and it reconnects. If the old network comes back,
   it rejoins by itself. A working connection is never touched.
-- **Factory reset:** Settings → Software. Your old settings are kept as a backup.
+- **Reset:** Settings → Software, as far back as you like. *Settings and plugins*
+  keeps a backup of your old settings and leaves Wi-Fi alone; *Wi-Fi only* forgets
+  the network and opens setup mode, for when RackTicker moves house without you;
+  *Everything* clears settings, plugins, the password and Wi-Fi; *Ready to pass on*
+  does all of that and then some — see below.
 - **Password:** optional, in Settings → Software. Forgot it? Unplug RackTicker as soon
   as its panel lights up, three times in a row; on the next start the panel says
   PASSWORD CLEARED. No computer needed.
 - **Crash protection:** if RackTicker keeps stopping, it goes back to the previous version.
+
+### Passing one on, or making cards from one image
+
+**Settings → Software → Reset → Ready to pass on** hands the unit over clean. It
+clears the settings, the installed plugins, any plugin logins, the control page
+password and the saved Wi-Fi, then wipes the system log and shell history — and
+then clears what makes the device *itself*: its machine id, its ssh host keys and
+its name. It powers off; wait for the panel to go dark before unplugging it.
+
+That last part matters if you clone the card. Two Pis imaged from one card without
+it share a machine id, so a DHCP server can hand them the same address; they offer
+the same ssh host key, so neither is telling the truth about who it is; and they
+both answer to the same `.local` name, so on one network only one of them is
+reachable. After a *Ready to pass on*, the first boot of each card makes its own
+machine id and host keys and names itself after its own Pi — `rackticker-3c4d`,
+from the processor's serial number — so any number of cards from one image come up
+as different devices. The panel shows the name and address it settled on.
+
+To make a master card: set one up, reset it *Ready to pass on*, then image the
+card once it has powered off.
 
 Rendering runs under an unprivileged service account; a small root-owned C++
 companion alone owns the GPIO and receives frames over a local socket, and the

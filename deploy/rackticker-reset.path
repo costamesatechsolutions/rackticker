@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for a RackTicker reset request from the web page
+
+[Path]
+PathExists=/var/lib/rackticker/reset/request.json
+Unit=rackticker-reset.service
+
+[Install]
+WantedBy=multi-user.target

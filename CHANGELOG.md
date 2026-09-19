@@ -2,6 +2,17 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.2.0 - 2026-09-19
+
+- Reset goes as far back as you need, from Settings: settings and plugins, Wi-Fi
+  only (for when RackTicker moves without you), everything, or **Ready to pass on**
+  — which also clears the system log, the shell history and the device's own
+  identity, then powers off.
+- A device now makes its own machine id, ssh host keys and name on first boot after
+  that reset, named after its Pi (`rackticker-3c4d`). Cards cloned from one image
+  no longer share an identity, an ssh host key or a `.local` name.
+- Photographs of a built unit in the README.
+
 ## 1.1.0 - 2026-09-19
 
 - Set the time zone from Settings, no SSH: clocks, schedules and news timestamps

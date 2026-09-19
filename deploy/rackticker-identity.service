@@ -1,0 +1,18 @@
+[Unit]
+Description=Give this RackTicker a machine id, host keys and a name of its own
+# Before anything that depends on the machine id or the host keys: a card cloned
+# from another one boots here first and stops being a copy.
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target sysinit.target ssh.service NetworkManager.service
+Wants=local-fs.target
+ConditionPathExists=/opt/rackticker/current/deploy/rackticker-reset.py
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-reset.py identity
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=sysinit.target

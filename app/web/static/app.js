@@ -658,6 +658,7 @@ async function renderSoftware() {
   }
   $('software-note').textContent = note;
   if (info.timezone) loadTimezones(info.timezone).catch(() => {});
+  renderResetChoices(info.resets);
   update.onclick = guard(async () => {
     if (!confirm('Install the update? The display restarts, and goes back to this version by itself if the new one does not start.')) return;
     softwareFrom = info.revision;
@@ -688,11 +689,47 @@ async function saveAccess() {
   if (result.password_set) setTimeout(() => location.reload(), 1500);
 }
 
+// Each reset goes one step further than the last; the deeper ones need a typed yes.
+const RESET_CONFIRM = {
+  network: 'Forget every Wi-Fi network? RackTicker drops off this network and opens its own "RackTicker-Setup" network, which you join to point it somewhere else. This page will stop responding.',
+  everything: 'Reset everything? Settings, plugins, the control page password and Wi-Fi are all cleared, and RackTicker opens its setup network again.',
+  ship: 'Prepare this RackTicker to pass on? It clears everything, forgets what makes this device itself (its name, keys and logs), and powers off. The next time it is switched on it starts as a new device.',
+};
+
+function renderResetChoices(choices) {
+  const picker = $('reset-scope');
+  if (!picker || !choices?.length) return;
+  const chosen = picker.value;
+  picker.innerHTML = '';
+  for (const {scope, what} of choices) {
+    const option = document.createElement('option');
+    option.value = scope;
+    option.textContent = {settings: 'Settings and plugins', network: 'Wi-Fi only',
+                          everything: 'Everything', ship: 'Ready to pass on'}[scope] || scope;
+    option.title = what;
+    picker.append(option);
+  }
+  picker.value = chosen && choices.some((c) => c.scope === chosen) ? chosen : 'settings';
+  const note = () => { $('reset-note').textContent = choices.find((c) => c.scope === picker.value)?.what || ''; };
+  picker.onchange = note;
+  note();
+}
+
 async function factoryReset() {
-  if (!confirm('Reset RackTicker to a fresh install? Settings and the playlist go back to the defaults and installed plugins are removed. A backup of your settings is kept.')) return;
-  const result = await api('software/reset', 'POST', {});
-  toast(`Reset. Your old settings are saved as ${result.backup}. Reloading…`);
-  setTimeout(() => location.reload(), 4000);
+  const scope = $('reset-scope')?.value || 'settings';
+  const question = RESET_CONFIRM[scope]
+    || 'Reset RackTicker to a fresh install? Settings and the playlist go back to the defaults and installed plugins are removed. A backup of your settings is kept.';
+  if (!confirm(question)) return;
+  if (scope !== 'settings' && prompt('This cannot be undone. Type RESET to go ahead.') !== 'RESET') return;
+  const result = await api('software/reset', 'POST', {scope});
+  if (scope === 'settings') {
+    toast(`Reset. Your old settings are saved as ${result.backup}. Reloading…`);
+    setTimeout(() => location.reload(), 4000);
+  } else if (scope === 'ship') {
+    toast('Clearing this device and powering off. Wait for the panel to go dark before unplugging it.');
+  } else {
+    toast('Forgetting Wi-Fi. Join the "RackTicker-Setup" network to set it up again.');
+  }
 }
 
 function renderHaStatus() {

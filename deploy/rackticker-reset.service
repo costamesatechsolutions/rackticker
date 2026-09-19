@@ -1,0 +1,10 @@
+[Unit]
+Description=Carry out the RackTicker reset the web page asked for
+# Wi-Fi is part of some resets, so NetworkManager has to be up to forget it.
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/rackticker/current/deploy/rackticker-reset.py request
+TimeoutStartSec=10min
+MemoryMax=128M

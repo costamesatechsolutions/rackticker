@@ -69,6 +69,14 @@ async def latest(force=False):
     return value
 
 
+def reset_choices(request):
+    """The resets this install can actually carry out, for the page to offer."""
+    folder = request.app[KEYS["path"]].resolve().parent / "reset"
+    rooted = folder.is_dir() and os.access(folder, os.W_OK)
+    return [{"scope": scope, "what": what} for scope, what in RESET_SCOPES.items()
+            if rooted or scope == "settings"]
+
+
 def read_status(request):
     try:
         status = json.loads((update_dir(request) / "status.json").read_text())
@@ -81,7 +89,7 @@ def read_status(request):
 async def software_get(request):
     installed = revision()
     body = {"version": __version__, "revision": installed, "updatable": updatable(request),
-            "timezone": current_timezone(),
+            "timezone": current_timezone(), "resets": reset_choices(request),
             "status": read_status(request), "latest": None, "update_available": False,
             "queued": (update_dir(request) / "request.json").exists()}
     try:
@@ -139,10 +147,45 @@ async def timezones_get(request):
     return web.json_response({"current": current_timezone(), "zones": sorted(available_timezones())})
 
 
+RESET_SCOPES = {
+    "settings": "Settings, playlist and installed plugins. Wi-Fi and the password stay.",
+    "network": "Forget Wi-Fi and open the setup network, so it can join somewhere else.",
+    "everything": "Settings, plugins, the password and Wi-Fi: the Pi as it arrived.",
+    "ship": "Everything, plus this device's identity and logs. It powers off, ready to pass on.",
+}
+
+
+def reset_dir(request):
+    return request.app[KEYS["path"]].resolve().parent / "reset"
+
+
+def ask_root_to_reset(request, scope):
+    """The web app is unprivileged: leave the request for the root-owned helper."""
+    folder = reset_dir(request)
+    if not (folder.is_dir() and os.access(folder, os.W_OK)):
+        raise ValueError("This RackTicker cannot reset its own Wi-Fi (it is not a Pi install)")
+    temporary = folder / "request.tmp"
+    temporary.write_text(json.dumps({"scope": scope, "asked_at": int(time.time())}))
+    temporary.replace(folder / "request.json")   # the helper starts when this appears
+
+
 async def factory_reset(request):
-    """Back to a fresh install: default settings and playlist, installed plugins removed.
-    The old settings are kept beside the new ones, and Wi-Fi is not touched."""
+    """Back to a fresh install. How far back depends on the scope that was asked for.
+
+    `settings` is this process's own job. Anything touching Wi-Fi, the device's
+    identity or the system log needs root, so it goes to deploy/rackticker-reset.py."""
     from app.web import plugins_api
+    body = await request.json() if request.can_read_body else {}
+    scope = str((body or {}).get("scope") or "settings").lower()
+    if scope not in RESET_SCOPES:
+        raise ValueError("Unknown reset")
+    if scope != "settings":
+        ask_root_to_reset(request, scope)
+        if scope == "network":
+            return web.json_response({"reset": True, "scope": scope,
+                                      "note": "Forgetting Wi-Fi; the setup network opens in a moment."})
+        # The helper clears the settings too, and restarts or powers off when it is done.
+        return web.json_response({"reset": True, "scope": scope, "note": RESET_SCOPES[scope]})
     runtime, store = request.app[KEYS["runtime"]], request.app[KEYS["store"]]
     manager = request.app[plugins_api.MANAGER]
     path = request.app[KEYS["path"]]
@@ -160,7 +203,8 @@ async def factory_reset(request):
     # Under systemd, start afresh so every bundled plugin loads as on first boot.
     if os.environ.get("INVOCATION_ID"):
         asyncio.get_running_loop().call_later(1.5, os._exit, 75)
-    return web.json_response({"reset": True, "backup": f"{path.name}.before-reset-{stamp}"})
+    return web.json_response({"reset": True, "scope": "settings",
+                              "backup": f"{path.name}.before-reset-{stamp}"})
 
 
 CONFIG_PATH = web.AppKey("config_path", Path) if hasattr(web, "AppKey") else "config_path"

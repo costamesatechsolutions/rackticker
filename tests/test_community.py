@@ -176,6 +176,35 @@ class BartTests(unittest.TestCase):
         self.assertTrue(any(sum(c) < 120 for c in ink))     # and dark letters on it
 
 
+class SurfTideTests(unittest.TestCase):
+    """The sea sits where the tide puts it: 0 at dead low, 1 at dead high."""
+
+    def level(self, high, turn, then, now="2026-09-19 18:00"):
+        surf = community("surf")
+        return surf.Report._level({"high": high, "time": turn, "then": then},
+                                  datetime.strptime(now, "%Y-%m-%d %H:%M"))
+
+    def test_the_water_is_nearly_in_an_hour_before_high(self):
+        self.assertGreater(self.level(True, "2026-09-19 19:00", "2026-09-20 01:12"), .8)
+
+    def test_the_water_is_nearly_out_an_hour_before_low(self):
+        self.assertLess(self.level(False, "2026-09-19 19:00", "2026-09-20 01:12"), .2)
+
+    def test_just_past_low_the_water_is_still_down(self):
+        self.assertLess(self.level(True, "2026-09-20 00:00", "2026-09-20 06:12"), .1)
+
+    def test_one_turn_of_the_tide_is_not_enough_to_say(self):
+        surf = community("surf")
+        self.assertIsNone(surf.Report._level({"high": True, "time": "2026-09-19 19:00", "then": None}))
+        self.assertIsNone(surf.Report._level(None))
+
+    def test_nonsense_times_do_not_take_the_screen_down(self):
+        surf = community("surf")
+        self.assertIsNone(surf.Report._level({"high": True, "time": "later", "then": "much later"}))
+        # A second turn before the first would divide by a swing of nothing.
+        self.assertIsNone(self.level(True, "2026-09-19 19:00", "2026-09-19 19:00"))
+
+
 class NowPlayingTests(unittest.TestCase):
     def test_synced_lyrics_follow_the_song(self):
         now_playing = community("now_playing")

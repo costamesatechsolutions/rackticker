@@ -26,7 +26,7 @@
       "id": "surf",
       "name": "Surf",
       "author": "RackTicker",
-      "description": "The surf at your break: wave height, swell period and direction, water temperature and the next tide, over a rolling wave sized to the real one.",
+      "description": "The surf at your break: wave height, swell period and direction, water temperature, and the tide you can see \u2014 the sea sits high or low with it.",
       "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/surf"
     },
     {

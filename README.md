@@ -42,7 +42,7 @@ turn them on under Plugins.
 | [Departures](community/departures) | Live station boards: Amtrak anywhere in the United States, BART's colour-coded lines, and Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with real delays, platforms, station announcements, and trains pulling in |
 | [Tanks](community/tanks) | California's reservoirs, and the space station's urine and water tanks, as sloshing water |
 | [Quakes](community/quakes) | Earthquakes around you from the USGS on a 24-hour seismograph |
-| [Surf](community/surf) | Wave height, swell, water temperature and the next tide at your break |
+| [Surf](community/surf) | Wave height, swell, water temperature and the tide at your break: the sea sits high or low with the real tide, with the next turn and which way it is going |
 | [Now playing](community/now_playing) | The song you're listening to like an old car stereo: album art, scrolling title, track and time, spectrum analyser. Spotify or Home Assistant |
 
 Screens finish the headline, card or lap they are showing before the playlist moves

@@ -12,7 +12,8 @@ import math
 import aiohttp
 from PIL import ImageDraw
 
-from rackticker import Module, Plugin, Provider, Snapshot, draw_text, draw_tiny, new_frame, text_width, tiny_width
+from rackticker import (Module, Plugin, Provider, Snapshot, draw_text, draw_tiny, new_frame, text_width,
+                        tiny_width, triangle)
 
 MARINE = "https://marine-api.open-meteo.com/v1/marine"
 TIDES = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
@@ -68,7 +69,11 @@ class Conditions(Provider):
                 predictions = (await response.json(content_type=None)).get("predictions") or []
             upcoming = [row for row in predictions if datetime.strptime(row["t"], "%Y-%m-%d %H:%M") > today]
             if upcoming:
-                tide = {"high": upcoming[0]["type"] == "H", "time": upcoming[0]["t"], "feet": float(upcoming[0]["v"])}
+                # The one after it too: two turns of the tide say which way the water
+                # is going now, and how far through the swing it is.
+                tide = {"high": upcoming[0]["type"] == "H", "time": upcoming[0]["t"],
+                        "feet": float(upcoming[0]["v"]),
+                        "then": upcoming[1]["t"] if len(upcoming) > 1 else None}
         except (aiohttp.ClientError, ValueError, KeyError):
             tide = None
         return Snapshot({"spot": name, "height": current.get("wave_height"), "period": current.get("swell_wave_period")
@@ -107,7 +112,8 @@ class Report(Module):
             draw_text(frame, "Surf", 2, 12, GREY, mixed=True)
             return frame
         t = context.animation_time
-        self._wave(frame, surf, t)
+        level = self._level(surf.get("tide"))
+        self._wave(frame, surf, t, level)
         draw_text(frame, surf["spot"], 0, 0, AMBER, mixed=True)
         if surf.get("water") is not None:
             water = f"{round(surf['water'])}°"
@@ -127,19 +133,45 @@ class Report(Module):
         for index, line in enumerate(details):
             if x + tiny_width(line) <= 128:
                 draw_tiny(frame, line, 128 - tiny_width(line), 11 + index * 7, GREY)
+        # An arrow beside the tide line: coming in, or going out.
+        if tide and len(details) > 1 and x + tiny_width(details[-1]) + 7 <= 128:
+            triangle(frame, 128 - tiny_width(details[-1]) - 7, 12 + (len(details) - 1) * 7,
+                     bool(tide["high"]), SEA)
         return frame
 
     @staticmethod
-    def _wave(frame, surf, t):
+    def _level(tide, now=None):
+        """How far through the swing the water is: 0 at dead low, 1 at dead high.
+
+        The tide gives the next turn and the one after, so the swing between them
+        is the same length as the one running now, counted back from the next turn."""
+        if not tide or not tide.get("then"):
+            return None
+        now = now or datetime.now()
+        try:
+            turn = datetime.strptime(tide["time"], "%Y-%m-%d %H:%M")
+            after = datetime.strptime(tide["then"], "%Y-%m-%d %H:%M")
+        except (ValueError, TypeError):
+            return None
+        swing = (after - turn).total_seconds()
+        if swing <= 0:
+            return None
+        done = min(1.0, max(0.0, 1 - (turn - now).total_seconds() / swing))
+        return done if tide["high"] else 1 - done
+
+    @staticmethod
+    def _wave(frame, surf, t, level=None):
         """A swell rolling in along the bottom rows, taller and slower for bigger surf."""
         height = min(6.0, 1.5 + (surf.get("height") or 1) * .8)
         period = max(5.0, min(20.0, surf.get("period") or 10))
         draw = ImageDraw.Draw(frame)
         speed = 60 / period
+        # The whole sea sits higher at high water: the tide you can see, not read.
+        rise = 0 if level is None else (level - .5) * 5
         for x in range(128):
             phase = (x / 40 - t * speed / 10) * math.tau
             crest = (math.sin(phase) + .35 * math.sin(phase * 2 + 1)) / 1.35
-            top = round(31 - height / 2 - crest * height / 2)
+            top = round(31 - rise - height / 2 - crest * height / 2)
             draw.line((x, top, x, 31), fill=SEA)
             if crest > .55:
                 draw.point((x, top), fill=FOAM)

@@ -39,7 +39,7 @@ turn them on under Plugins.
 
 | Plugin | What it shows |
 | --- | --- |
-| [Departures](community/departures) | Live station boards from Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with trains pulling into the platform |
+| [Departures](community/departures) | Live station boards: Amtrak anywhere in the United States, BART's colour-coded lines, and Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with real delays, platforms, station announcements, and trains pulling in |
 | [Tanks](community/tanks) | California's reservoirs, and the space station's urine and water tanks, as sloshing water |
 | [Quakes](community/quakes) | Earthquakes around you from the USGS on a 24-hour seismograph |
 | [Surf](community/surf) | Wave height, swell, water temperature and the next tide at your break |

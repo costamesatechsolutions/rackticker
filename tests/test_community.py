@@ -72,6 +72,110 @@ class DeparturesTests(unittest.TestCase):
                                 "FR 9612 per MILANO CENTRALE delle 17:05 è cancellato"])
 
 
+class AmtrakTests(unittest.TestCase):
+    """Amtrak's own feed, as the board reads it."""
+
+    def run_for(self, **extra):
+        return {"trainNum": "580", "routeName": "Pacific Surfliner", "destName": "San Diego Santa Fe Depot",
+                "destCode": "SAN", "trainState": "Active",
+                "stations": [{"code": "ANA", "schDep": "2026-09-19T15:49:00-07:00",
+                              "dep": "2026-09-19T16:01:00-07:00", "platform": "2", "depCmnt": ""}],
+                **extra}
+
+    def row(self, run, code="ANA"):
+        from zoneinfo import ZoneInfo
+        return community("departures")._amtrak_row(run, code, ZoneInfo("America/Los_Angeles"))
+
+    def test_a_departure_carries_its_route_destination_and_delay(self):
+        row = self.row(self.run_for())
+        self.assertEqual(row["kind"], "SURF")            # the timetable's name for the route
+        self.assertEqual(row["number"], "580")
+        self.assertEqual(row["destination"], "San Diego")  # not "San Diego Santa Fe Depot"
+        self.assertEqual(row["delay"], 12)
+        self.assertEqual(row["track"], "2")
+        self.assertEqual(row["time"].strftime("%H:%M"), "15:49")
+
+    def test_a_train_that_ends_here_is_an_arrival_and_not_shown(self):
+        self.assertIsNone(self.row(self.run_for(destCode="ANA")))
+
+    def test_a_stop_with_no_departure_time_is_not_a_departure(self):
+        run = self.run_for()
+        run["stations"][0] = {"code": "ANA", "schArr": "2026-09-19T15:48:00-07:00"}
+        self.assertIsNone(self.row(run))
+
+    def test_a_train_that_does_not_call_here_is_skipped(self):
+        self.assertIsNone(self.row(self.run_for(), code="LAX"))
+
+    def test_a_cancelled_stop_is_marked(self):
+        run = self.run_for()
+        run["stations"][0]["depCmnt"] = "Cancelled"
+        self.assertTrue(self.row(run)["cancelled"])
+
+    def test_an_unlisted_route_still_gets_a_badge(self):
+        row = self.row(self.run_for(routeName="Borealis Extra"))
+        self.assertTrue(row["kind"])
+        self.assertLessEqual(len(row["kind"]), 5)
+
+
+class BartTests(unittest.TestCase):
+    """BART counts in minutes from now; the board works in clock times."""
+
+    PAYLOAD = {"root": {"station": [{"abbr": "EMBR", "etd": [
+        {"destination": "Antioch", "estimate": [
+            {"minutes": "Leaving", "platform": "2", "color": "YELLOW", "hexcolor": "#ffff33", "delay": "274"},
+            {"minutes": "17", "platform": "2", "color": "YELLOW", "hexcolor": "#ffff33", "delay": "0"}]},
+        {"destination": "Millbrae", "estimate": [
+            {"minutes": "8", "platform": "1", "color": "RED", "hexcolor": "#ff0000", "delay": "0",
+             "cancelflag": "1"},
+            {"minutes": "", "platform": "1", "color": "RED", "hexcolor": "#ff0000", "delay": "0"}]}]}]}}
+
+    def bart_rows(self):
+        import asyncio
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        departures = community("departures")
+        zone = ZoneInfo("America/Los_Angeles")
+        when = datetime(2026, 9, 19, 19, 0, tzinfo=zone)
+
+        class Reply:
+            status = 200
+            def raise_for_status(self): pass
+            async def json(self, content_type=None): return BartTests.PAYLOAD
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+
+        class Session:
+            def get(self, *args, **kwargs): return Reply()
+
+        return asyncio.run(departures.bart(Session(), "EMBR", when, zone))
+
+    def test_minutes_from_now_become_departure_times(self):
+        rows = self.bart_rows()
+        times = [row["time"].strftime("%H:%M") for row in rows]
+        self.assertEqual(times[:3], ["19:00", "19:17", "19:08"])   # "Leaving" is now
+
+    def test_each_line_keeps_its_own_colour_and_platform(self):
+        rows = self.bart_rows()
+        self.assertEqual(rows[0]["kind"], "YEL")
+        self.assertEqual(rows[0]["color"], "ffff33")
+        self.assertEqual(rows[0]["track"], "2")
+        self.assertEqual(rows[0]["delay"], 5)        # BART counts delay in seconds
+        self.assertTrue(rows[2]["cancelled"])
+
+    def test_a_train_with_no_estimate_is_left_off(self):
+        self.assertEqual(len(self.bart_rows()), 3)   # four estimates, one without minutes
+
+    def test_a_pale_line_colour_gets_dark_letters(self):
+        """Nothing reads white on BART's yellow."""
+        from PIL import Image
+        departures = community("departures")
+        frame = Image.new("RGB", (128, 9))
+        departures._badge(frame, "YEL", 0, 1, "bart", "ffff33")
+        ink = {frame.load()[x, y] for x in range(2, 20) for y in range(1, 8)}
+        self.assertIn((255, 255, 51), ink)                  # the line's real colour, undimmed
+        self.assertTrue(any(sum(c) < 120 for c in ink))     # and dark letters on it
+
+
 class NowPlayingTests(unittest.TestCase):
     def test_synced_lyrics_follow_the_song(self):
         now_playing = community("now_playing")

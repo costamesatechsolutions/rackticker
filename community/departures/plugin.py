@@ -29,8 +29,28 @@ STATIONS = {
     "venezia_sl": ("Venezia S. Lucia", "Venezia", "Europe/Rome", "trenitalia", "S02593", "trenitalia"),
     "napoli_centrale": ("Napoli Centrale", "Napoli", "Europe/Rome", "trenitalia", "S09218", "trenitalia"),
     "zurich_hb": ("Zürich HB", "Zürich", "Europe/Zurich", "sbb", "Zürich HB", "sbb"),
+    # Amtrak, from the key-free Amtraker API: the same board, wherever you are.
+    "los_angeles_union": ("Los Angeles Union", "Los Angeles", "America/Los_Angeles", "amtrak", "LAX", "amtrak"),
+    "anaheim_artic": ("Anaheim ARTIC", "Anaheim", "America/Los_Angeles", "amtrak", "ANA", "amtrak"),
+    "san_diego": ("San Diego", "San Diego", "America/Los_Angeles", "amtrak", "SAN", "amtrak"),
+    "seattle_king_street": ("Seattle King St", "Seattle", "America/Los_Angeles", "amtrak", "SEA", "amtrak"),
+    "chicago_union": ("Chicago Union", "Chicago", "America/Chicago", "amtrak", "CHI", "amtrak"),
+    "new_york_penn": ("New York Penn", "New York", "America/New_York", "amtrak", "NYP", "amtrak"),
+    "washington_union": ("Washington Union", "Washington", "America/New_York", "amtrak", "WAS", "amtrak"),
+    "boston_south": ("Boston South", "Boston", "America/New_York", "amtrak", "BOS", "amtrak"),
+    # BART: five colour-coded lines and a train every few minutes, so the board moves.
+    "sf_embarcadero": ("Embarcadero", "San Francisco", "America/Los_Angeles", "bart", "EMBR", "bart"),
+    "sf_powell": ("Powell St", "San Francisco", "America/Los_Angeles", "bart", "POWL", "bart"),
+    "oakland_12th": ("12th St Oakland", "Oakland", "America/Los_Angeles", "bart", "12TH", "bart"),
+    "berkeley": ("Downtown Berkeley", "Berkeley", "America/Los_Angeles", "bart", "DBRK", "bart"),
 }
-TOUR = tuple(STATIONS)
+EURO_TOUR = ("budapest_keleti", "roma_termini", "milano_centrale", "firenze_smn", "venezia_sl",
+             "napoli_centrale", "zurich_hb")
+US_TOUR = ("los_angeles_union", "anaheim_artic", "san_diego", "seattle_king_street", "chicago_union",
+           "new_york_penn", "washington_union", "boston_south",
+           "sf_embarcadero", "sf_powell", "oakland_12th", "berkeley")
+TOURS = {"tour": EURO_TOUR, "usa": US_TOUR, "world": EURO_TOUR + US_TOUR}
+TOUR = EURO_TOUR + US_TOUR   # the order boards are shown in, whichever are loaded
 
 WHITE, YELLOW, AMBER, RED, GREEN = (236, 238, 236), (255, 206, 40), (255, 150, 20), (255, 60, 45), (80, 220, 120)
 GREY, DIM = (150, 156, 160), (70, 74, 78)
@@ -42,6 +62,14 @@ STYLES = {
     "trenitalia": {"time": YELLOW, "dest": YELLOW, "track": (70, 74, 82), "accent": (230, 40, 40), "mixed": False,
                    "departures": ("Partenze", ""), "late": "rit.", "cancelled": "CANCELLATO", "track_word": "binario",
                    "train": ((205, 210, 215), (220, 30, 30), (60, 64, 70))},
+    # Amtrak: white on black with the blue and red of the livery, and English words.
+    "amtrak": {"time": WHITE, "dest": WHITE, "track": (0, 60, 130), "accent": (200, 30, 40), "mixed": True,
+               "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED", "track_word": "track",
+               "train": ((0, 70, 150), (225, 228, 232), (200, 30, 40))},
+    # BART: each line keeps its own colour, which is how the system is read.
+    "bart": {"time": WHITE, "dest": WHITE, "track": (40, 44, 52), "accent": (30, 90, 180), "mixed": True,
+             "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED", "track_word": "platform",
+             "train": ((40, 90, 190), (225, 228, 232), (240, 240, 240))},
     "sbb": {"time": WHITE, "dest": WHITE, "track": (20, 60, 140), "accent": (230, 30, 30), "mixed": True,
             "departures": ("Abfahrt", ""), "late": "ca.", "cancelled": "fällt aus", "track_word": "Gleis",
             "train": ((225, 30, 30), (240, 240, 240), (40, 40, 44))},
@@ -61,6 +89,12 @@ NOTICE_SPEED, NOTICES = 30, 3   # 30 px/s is one LED a frame: a smooth crawl; at
 # The station's own announcement, per board style: (heading, late, platform, cancelled).
 # {train} is "FR 9612", {dest} the destination, {time} the planned departure.
 ANNOUNCE = {
+    "amtrak": ("ATTENTION", "Train {train} to {dest}, the {time} departure, is running {delay} minutes late",
+               "Train {train} to {dest}, the {time} departure, will depart from track {track}",
+               "Train {train} to {dest}, the {time} departure, is cancelled"),
+    "bart": ("ATTENTION", "The {time} {train} train to {dest} is running {delay} minutes late",
+             "The {time} {train} train to {dest} departs from platform {track}",
+             "The {time} {train} train to {dest} has been cancelled"),
     "trenitalia": ("AVVISO", "{train} per {dest} delle {time}: ritardo {delay} minuti",
                    "{train} per {dest} delle {time} parte dal binario {track}",
                    "{train} per {dest} delle {time} è cancellato"),
@@ -189,7 +223,130 @@ async def sbb(session, name, when, zone):
     return rows
 
 
-SOURCES = {"mav": mav, "trenitalia": trenitalia, "sbb": sbb}
+# Amtrak route names are long and the board is 128 px wide; these are what the
+# timetables call them. Anything unlisted falls back to its first word.
+AMTRAK_ROUTES = {"Pacific Surfliner": "SURF", "Coast Starlight": "STAR", "Capitol Corridor": "CAP",
+                 "San Joaquins": "SJ", "Acela": "ACELA", "Northeast Regional": "NER",
+                 "Empire Service": "EMP", "Keystone Service": "KEY", "Cascades": "CASC",
+                 "Downeaster": "DOWN", "Hiawatha": "HIA", "Lincoln Service": "LINC",
+                 "Wolverine": "WOLV", "Missouri River Runner": "MRR", "Heartland Flyer": "HFLY",
+                 "Empire Builder": "BLDR", "California Zephyr": "ZEPH", "Southwest Chief": "CHF",
+                 "Texas Eagle": "EAGL", "City of New Orleans": "CNO", "Silver Star": "STAR",
+                 "Silver Meteor": "METR", "Crescent": "CRES", "Cardinal": "CARD", "Auto Train": "AUTO",
+                 "Lake Shore Limited": "LSL", "Carolinian": "CARO", "Piedmont": "PIED", "Adirondack": "ADIR",
+                 "Ethan Allen Express": "ALLN", "Vermonter": "VERM", "Maple Leaf": "MAPL",
+                 "Pennsylvanian": "PENN", "Palmetto": "PALM", "Borealis": "BORE", "Sunset Limited": "SUNS", "Silver Star": "SILV",
+                 "Blue Water": "BLUE", "Pere Marquette": "MARQ", "Illinois Zephyr": "IZEP",
+                 "Carl Sandburg": "SAND", "Saluki": "SALU", "Illini": "ILLI", "Winter Park Express": "WPX"}
+# What a station's sign leaves off once you are standing in it.
+AMTRAK_TRIM = (" Santa Fe Depot", " Union Station", " Union", " Penn Station", " South Station",
+               " King Street Station", " King Street", " Transportation Center", " Amtrak Station", " Station")
+
+
+def _amtrak_name(name):
+    name = str(name or "").split(",")[0].strip()
+    for tail in AMTRAK_TRIM:
+        if name.endswith(tail) and len(name) > len(tail) + 2:
+            name = name[: -len(tail)]
+            break
+    return name.strip(" -")
+
+
+def _amtrak_row(run, code, zone):
+    """One departure from this station, or None if this run does not stop here."""
+    if str(run.get("destCode") or "") == code:
+        return None      # this run ends here: an arrival, and this is a departures board
+    stop = next((s for s in run.get("stations") or [] if s.get("code") == code), None)
+    if not stop or not stop.get("schDep"):
+        return None
+    planned = _parse_time(stop["schDep"], zone)
+    if not planned:
+        return None
+    expected = _parse_time(stop.get("dep") or stop.get("arr"), zone)
+    delay = round((expected - planned).total_seconds() / 60) if expected else 0
+    route = str(run.get("routeName") or "")
+    comment = f"{stop.get('depCmnt') or ''} {stop.get('arrCmnt') or ''}".lower()
+    return {"time": planned, "delay": delay,
+            "kind": AMTRAK_ROUTES.get(route) or route.split(" ")[0][:4].upper(),
+            "number": str(run.get("trainNum") or ""), "name": route,
+            "destination": _amtrak_name(run.get("destName")),
+            "track": str(stop.get("platform") or "").strip(), "moved": False,
+            "cancelled": "cancel" in comment or str(run.get("trainState") or "").lower() == "cancelled"}
+
+
+async def amtrak(session, code, when, zone):
+    """Amtrak departures from one station, through the key-free Amtraker API.
+
+    The station endpoint says which trains call here today; each train is then asked
+    for its own stop, which is where the real times and the delay live."""
+    base = "https://api-v3.amtraker.com/v3"
+    async with session.get(f"{base}/stations/{code}", headers=UA) as response:
+        response.raise_for_status()
+        station = (await response.json(content_type=None)).get(code) or {}
+    numbers, seen = [], set()
+    for train_id in station.get("trains") or []:
+        number = str(train_id).split("-")[0]
+        if number and number not in seen:
+            seen.add(number)
+            numbers.append(number)
+
+    async def one(number):
+        try:
+            async with session.get(f"{base}/trains/{number}", headers=UA) as response:
+                response.raise_for_status()
+                return await response.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            return {}
+
+    rows = {}
+    # Twelve trains is more than three pages of board; asking for more is wasted work.
+    for payload in await asyncio.gather(*(one(number) for number in numbers[:12])):
+        for runs in (payload or {}).values():
+            for run in runs or []:
+                row = _amtrak_row(run, code, zone)
+                if row:   # the same train can come back as several runs; one departure each
+                    rows[(row["number"], row["time"])] = row
+    return list(rows.values())
+
+
+# BART publishes a public key for exactly this: it is in their own documentation.
+BART_KEY = "MW9S-E7SL-26DU-VV8V"
+BART_LINES = {"YELLOW": "YEL", "RED": "RED", "BLUE": "BLU", "GREEN": "GRN", "ORANGE": "ORG",
+              "WHITE": "SFO", "PURPLE": "PUR", "BEIGE": "BEI"}
+
+
+async def bart(session, code, when, zone):
+    """BART departures: every line that calls here, in its own colour.
+
+    BART counts in minutes from now rather than clock times, so the board works
+    back to a departure time; a train that is 'Leaving' is leaving now."""
+    params = {"cmd": "etd", "orig": code, "key": BART_KEY, "json": "y"}
+    async with session.get("https://api.bart.gov/api/etd.aspx", params=params, headers=UA) as response:
+        response.raise_for_status()
+        payload = await response.json(content_type=None)
+    root = (payload or {}).get("root") or {}
+    stations = root.get("station") or []
+    now = when.astimezone(zone)
+    rows = []
+    for line in (stations[0].get("etd") or []) if stations else []:
+        destination = str(line.get("destination") or "")
+        for train in line.get("estimate") or []:
+            minutes = str(train.get("minutes") or "")
+            away = 0 if minutes.lower() == "leaving" else int(minutes) if minutes.isdigit() else None
+            if away is None:
+                continue
+            colour = str(train.get("color") or "").upper()
+            rows.append({"time": now + timedelta(minutes=away), "delay": round(int(train.get("delay") or 0) / 60),
+                         "kind": BART_LINES.get(colour, colour[:3] or "BART"),
+                         "number": "", "name": f"{colour.title()} line",
+                         "color": str(train.get("hexcolor") or "").lstrip("#")[:6],
+                         "destination": destination,
+                         "track": str(train.get("platform") or "").strip(),
+                         "moved": False, "cancelled": str(train.get("cancelflag") or "0") == "1"})
+    return rows
+
+
+SOURCES = {"mav": mav, "trenitalia": trenitalia, "sbb": sbb, "amtrak": amtrak, "bart": bart}
 
 
 class Boards(Provider):
@@ -200,7 +357,7 @@ class Boards(Provider):
 
     def stations(self):
         chosen = self.context.settings["station"]
-        return list(TOUR) if chosen == "tour" else [chosen]
+        return list(TOURS.get(chosen, ())) or [chosen]
 
     async def fetch(self):
         settings = self.context.settings
@@ -245,10 +402,13 @@ def _badge(frame, kind, x, y, style, color=""):
         return x
     base = kind.rstrip("0123456789") or kind
     fill, ink = BADGES.get(base, (STYLES[style]["accent"], WHITE))
-    if len(color) == 6:  # the line's own colour, as MÁV publishes it
+    if len(color) == 6:  # the line's own colour, as MÁV and BART publish it
         rgb = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
-        if 120 < sum(rgb) < 600:
-            fill, ink = rgb, WHITE
+        if sum(rgb) > 120:
+            # White letters everywhere except on a pale line colour: nothing reads
+            # white on BART's yellow, which is why the real signs print it black.
+            bright = rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114
+            fill, ink = rgb, (20, 18, 12) if bright > 150 else WHITE
     width = text_width(kind) + 3
     ImageDraw.Draw(frame).rectangle((x, y - 1, x + width - 1, y + 7), fill=fill)
     draw_text(frame, kind, x + 2, y, ink)
@@ -513,8 +673,8 @@ def validate(settings):
 plugin = Plugin(
     "departures", "Departures", module=Board, provider=Boards,
     defaults={"station": "tour", "clock": "auto", "times": "yours", "refresh_seconds": 90},
-    choices={"station": ("tour",) + TOUR, "clock": ("auto", "station", "mine"), "times": ("yours", "station")},
-    help={"station": "tour visits every station in turn",
+    choices={"station": tuple(TOURS) + TOUR, "clock": ("auto", "station", "mine"), "times": ("yours", "station")},
+    help={"station": "tour visits the European stations in turn, usa the Amtrak ones, world all of them",
           "times": "show departure times in your time zone or the station's",
           "clock": "station shows the real board now; mine replays the timetable at your time of day; "
                    "auto uses the real board while the station is awake"},

@@ -5,7 +5,7 @@
       "id": "departures",
       "name": "Departures",
       "author": "RackTicker",
-      "description": "Live station boards from Budapest, Rome, Milan, Florence, Venice, Naples and Zürich, drawn the way each country's boards look, with trains pulling into the platform.",
+      "description": "Live station boards: Amtrak across the United States, BART's colour-coded lines, and seven European stations, each drawn the way that country's boards look, with trains pulling into the platform.",
       "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/departures"
     },
     {

@@ -17,7 +17,7 @@ screen, and it's built from 4 printed parts, 8 screws and 4 rack screws.
 | Raspberry Pi 3A+ | 1 | A Pi Zero 2 W should work too (untested) |
 | WatangTech RGB Matrix Adapter Board | 1 | The HUB75 adapter ("regular" pin mapping) |
 | microSD card, 16 GB or more | 1 | Raspberry Pi OS Lite |
-| 5 V power supply, barrel plug | 1 | 5 V, 4 A or more; a 5 V 8 A brick leaves headroom at full brightness. Match the adapter's jack (usually 5.5 × 2.1 mm) |
+| 5 V power supply, barrel plug | 1 | 5 V, sized for your panels (4 A or more is a good start). Match the adapter's jack (usually 5.5 × 2.1 mm) |
 | **M3 × 10 screw, socket cap or pan head** | **8** | **not countersunk**; buy a 10- or 25-pack |
 | rack screws | 4 | whatever your rack takes; corners only |
 | zip tie, 2.5–4.8 mm | 1–3 | holds the Pi on the cradle; one in the middle is enough |

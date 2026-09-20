@@ -13,7 +13,7 @@ explained.
 The full list, with quantities, is in
 [BEZEL_V10.md](../hardware/enclosure/BEZEL_V10.md#what-you-need): two Waveshare 64×32 P2.5
 panels, a Raspberry Pi 3A+, an RGB matrix adapter board, a 5 V supply with a barrel plug
-(4 A or more; the reference build runs on a 5 V 6 A one), a microSD card, eight M3 × 10 screws,
+(sized for your panels; 4 A or more is a good start), a microSD card, eight M3 × 10 screws,
 four rack screws, a zip tie and about 220 g of PLA. An RTL-SDR ADS-B stick is optional.
 
 ## 2. Print the face

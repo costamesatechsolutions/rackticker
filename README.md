@@ -62,7 +62,7 @@ so crawls step exactly one LED per frame.
 | **Raspberry Pi 3A+** | The reference build. A Pi Zero 2 W should work (untested); the original Zero W is too slow |
 | **2 × Waveshare 64×32 P2.5 RGB LED matrix panels** | HUB75, chained side by side: 320 × 80 mm of screen |
 | **WatangTech RGB Matrix Adapter Board** | Sits on the Pi's header and drives the panels ("regular" pin mapping) |
-| **5 V power supply with a barrel plug** | 4 A or more; 8 A leaves headroom at full brightness. Match the adapter's jack |
+| **5 V power supply with a barrel plug** | Sized for your panels; 4 A or more is a good start. Match the adapter's jack |
 | **microSD card** | 16 GB or more, Raspberry Pi OS Lite |
 | **3D printed 2U rack face** | Four parts and eight M3 × 10 screws; 88 mm of rack height. **[Print files on MakerWorld](https://makerworld.com/en/models/3327605-rackticker-2u-led-ticker-for-your-server-rack)**; guide in [BEZEL_V10.md](hardware/enclosure/BEZEL_V10.md) |
 | **USB ADS-B receiver** *(optional)* | An RTL-SDR stick and antenna for planes overhead; without one, Flights uses a free network feed |

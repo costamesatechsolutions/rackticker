@@ -41,16 +41,19 @@ See [Make a screen](#make-a-screen) and [docs/plugins.md](docs/plugins.md).
 Traffic (California only), F1 and Prediction markets ship switched off on a fresh install;
 turn them on under Plugins.
 
-**Community plugins** install from the Plugins page with one click:
+**[Community plugins](https://github.com/costamesatechsolutions/rackticker-community-plugins)** live in their own repository and install from the
+Plugins page with one click:
 
 | Plugin | What it shows |
 | --- | --- |
-| [Departures](community/departures) | Live station boards: the London Underground in its own line colours, Metrolink and Amtrak across the United States, BART, and Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with real delays, platforms, station announcements, and trains pulling in |
-| [Onboard](community/onboard) | The strip map above the carriage doors of a train that is really running: the line, its stops, the train sliding along it, the next stop and how long until it |
-| [Tanks](community/tanks) | California's reservoirs, and the space station's urine and water tanks, as sloshing water |
-| [Quakes](community/quakes) | Earthquakes around you from the USGS on a 24-hour seismograph |
-| [Surf](community/surf) | Wave height, swell, water temperature and the tide at your break: the sea sits high or low with the real tide, with the next turn and which way it is going |
-| [Now playing](community/now_playing) | The song you're listening to like an old car stereo: album art, scrolling title, track and time, spectrum analyser. Spotify or Home Assistant |
+| [Departures](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/departures) | Live station boards: the London Underground in its own line colours, Metrolink and Amtrak across the United States, BART, and Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with real delays, platforms, station announcements, and trains pulling in |
+| [Onboard](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/onboard) | The strip map above the carriage doors of a train that is really running: the line, its stops, the train sliding along it, the next stop and how long until it |
+| [Tanks](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/tanks) | California's reservoirs, and the space station's urine and water tanks, as sloshing water |
+| [Quakes](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/quakes) | Earthquakes around you from the USGS on a 24-hour seismograph |
+| [Surf](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/surf) | Wave height, swell, water temperature and the tide at your break: the sea sits high or low with the real tide, with the next turn and which way it is going |
+| [Now playing](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/now_playing) | The song you're listening to like an old car stereo: album art, scrolling title, track and time, spectrum analyser. Spotify or Home Assistant |
+| [Virtual Aquarium](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/virtual_aquarium) | A tank of clownfish, angelfish and neon tetras, with swaying plants and a wandering snail |
+| [Retro Screensavers](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/retro_savers) | 3D pipes, Mystify, a starfield, a bouncing badge and marquee text |
 
 Screens finish the headline, card or lap they are showing before the playlist moves
 on, skip themselves when they have nothing to show, and move on a frame-locked clock
@@ -236,8 +239,9 @@ the link into **Plugins → Add a plugin** and updates it with one click. Instal
 plugins run in their own sandboxed process, so a crash or hang restarts only that
 plugin and the display never waits for it. The scaffold ships an `AGENTS.md` with
 the panel's rules, so an AI coding agent (Codex, Claude, Cursor) can build and check
-a screen on its own. To list yours for everyone, add it to
-[community/index.json](community/index.json). Full guide: [docs/plugins.md](docs/plugins.md).
+a screen on its own. To list yours for everyone, open a pull request against the
+**[community plugins repository](https://github.com/costamesatechsolutions/rackticker-community-plugins)** — one folder and one catalog entry, and it
+appears in everyone's Plugins page. Full guide: [docs/plugins.md](docs/plugins.md).
 
 ## How it stays smooth
 

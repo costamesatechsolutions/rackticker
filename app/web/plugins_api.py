@@ -20,7 +20,11 @@ from app.core.installer import InstallError, Installer
 
 log = logging.getLogger("plugins")
 MANAGER = web.AppKey("plugin_manager", object) if hasattr(web, "AppKey") else "plugin_manager"
-COMMUNITY_URL = "https://raw.githubusercontent.com/costamesatechsolutions/rackticker/main/community/index.json"
+# Community plugins live in their own repository, so they can be added and
+# updated without a RackTicker release. The copy in community/ is the
+# fallback for a panel that cannot reach GitHub.
+COMMUNITY_URL = ("https://raw.githubusercontent.com/costamesatechsolutions/"
+                 "rackticker-community-plugins/main/index.json")
 COMMUNITY_LOCAL = Path(__file__).resolve().parents[2] / "community" / "index.json"
 MAX_UPLOAD = 28 * 1024 * 1024  # a 20 MB zip, base64 encoded
 _community = {"at": 0.0, "data": None}

@@ -68,12 +68,12 @@ async def main():
     from app.core.plugins import PluginRegistry
     from app.core.runtime import Runtime
     from app.outputs.browser import BrowserSink
-    from tools.render_demo import PLUGINS
+    from tools.render_demo import PLUGINS, community
     seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 40
     wanted = sys.argv[2:]
-    paths = {**PLUGINS, "quakes": "community/quakes/plugin.py", "surf": "community/surf/plugin.py",
-             "now_playing": "community/now_playing/plugin.py", "traffic": "plugins/traffic/rackticker_traffic.py",
-             "url_data": "plugins/url-data/rackticker_url_data.py"}
+    paths = {**PLUGINS, "traffic": "plugins/traffic/rackticker_traffic.py",
+             "url_data": "plugins/url-data/rackticker_url_data.py",
+             **community("quakes", "surf", "now_playing", "onboard")}
     registry = PluginRegistry()
     for name, path in paths.items():
         spec = importlib.util.spec_from_file_location(f"audit_{name}", ROOT / path)

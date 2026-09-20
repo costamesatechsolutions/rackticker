@@ -1,9 +1,0 @@
-{
-  "id": "surf",
-  "name": "Surf",
-  "entry": "plugin.py",
-  "description": "The surf at your break: wave height, swell period and direction, water temperature, and real water \u2014 a simulated sea driven by the actual swell, sitting high or low with the actual tide.",
-  "author": "RackTicker",
-  "version": "1.2.0",
-  "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/surf"
-}

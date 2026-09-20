@@ -1,9 +1,0 @@
-{
-  "id": "onboard",
-  "name": "Onboard",
-  "entry": "plugin.py",
-  "description": "The strip map above the carriage doors, for a train that is really running: the line, the stops, the train sliding along it, the next stop and how long until it.",
-  "author": "RackTicker",
-  "version": "1.0.0",
-  "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/onboard"
-}

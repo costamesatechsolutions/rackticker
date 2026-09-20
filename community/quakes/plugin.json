@@ -1,9 +1,0 @@
-{
-  "id": "quakes",
-  "name": "Quakes",
-  "entry": "plugin.py",
-  "description": "Earthquakes around you from the USGS: a 24-hour seismograph drum, the latest shakes by size and distance, and a take-over when a strong one hits nearby.",
-  "author": "RackTicker",
-  "version": "1.0.0",
-  "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/quakes"
-}

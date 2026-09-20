@@ -24,8 +24,23 @@ PLUGINS = {"finance": "plugins/finance/rackticker_finance.py", "free_sports": "p
            "markets": "plugins/prediction-markets/rackticker_markets.py", "news": "plugins/news/rackticker_news.py",
            "weather": "plugins/weather/rackticker_weather.py", "ticker_wall": "plugins/ticker-wall/rackticker_ticker_wall.py",
            "arcade": "plugins/arcade/rackticker_arcade.py", "town": "plugins/pixel-town/rackticker_town.py",
-           "f1": "plugins/f1-schedule/rackticker_f1.py", "departures": "community/departures/plugin.py",
-           "tanks": "community/tanks/plugin.py"}
+           "f1": "plugins/f1-schedule/rackticker_f1.py"}
+# Community plugins are a separate repository now. Clone it beside this one and the
+# tools pick them up; without it they are simply not in the demo.
+COMMUNITY = ROOT.parent / "rackticker-community-plugins" / "plugins"
+
+
+def community(*names):
+    """The community plugins that are actually checked out beside us."""
+    found = {}
+    for name in names:
+        entry = COMMUNITY / name / "plugin.py"
+        if entry.exists():
+            found[name] = entry
+    return found
+
+
+PLUGINS.update(community("departures", "tanks"))
 SCREENS = ("clock", "finance", "sportsbook", "departures", "markets", "news", "weather", "tanks", "ticker_wall",
            "town", "arcade", "f1")
 SCALE, FPS = 3, 10

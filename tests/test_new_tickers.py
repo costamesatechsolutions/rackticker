@@ -218,9 +218,14 @@ class NewTickerTests(unittest.TestCase):
             town.people[-1].update(dir=1, hungry=True, fed=False, speed=9.0, dog=False, slot=None, carry=0.0)
         for _ in range(30 * 8):
             town._simulate(1 / 30, 12.5, "sun", None)
-        queued = sorted(p["x"] for p in town.people if p["slot"] is not None)
+        queued = [p for p in town.people if p["slot"] is not None]
         self.assertGreaterEqual(len(queued), 2, "nobody queued at an open truck")
-        for near, far in zip(queued, queued[1:]):
+        slots = [p["slot"] for p in queued]
+        self.assertEqual(len(set(slots)), len(slots), "two customers were given the same place")
+        # Everyone who has reached their place is a clear step from the next person.
+        # (Someone still walking up to the back of the queue may be anywhere.)
+        settled = sorted(p["x"] for p in queued if abs(p["x"] - town._slot_x(p["slot"])) < .5)
+        for near, far in zip(settled, settled[1:]):
             self.assertGreaterEqual(far - near, TOWN.QUEUE_GAP - .01, "two customers in one spot")
 
     def test_a_customer_is_served_and_walks_off_with_the_taco(self):

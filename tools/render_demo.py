@@ -20,11 +20,8 @@ from app.outputs.browser import BrowserSink
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGINS = {"finance": "plugins/finance/rackticker_finance.py", "free_sports": "plugins/free-sports/rackticker_free_sports.py",
-           "sportsbook": "plugins/sportsbook/rackticker_sportsbook.py",
-           "markets": "plugins/prediction-markets/rackticker_markets.py", "news": "plugins/news/rackticker_news.py",
-           "weather": "plugins/weather/rackticker_weather.py", "ticker_wall": "plugins/ticker-wall/rackticker_ticker_wall.py",
-           "arcade": "plugins/arcade/rackticker_arcade.py", "town": "plugins/pixel-town/rackticker_town.py",
-           "f1": "plugins/f1-schedule/rackticker_f1.py"}
+           "sportsbook": "plugins/sportsbook/rackticker_sportsbook.py", "news": "plugins/news/rackticker_news.py",
+           "weather": "plugins/weather/rackticker_weather.py", "town": "plugins/pixel-town/rackticker_town.py"}
 # Community plugins are a separate repository now. Clone it beside this one and the
 # tools pick them up; without it they are simply not in the demo.
 COMMUNITY = ROOT.parent / "rackticker-community-plugins" / "plugins"
@@ -40,7 +37,7 @@ def community(*names):
     return found
 
 
-PLUGINS.update(community("departures", "tanks"))
+PLUGINS.update(community("departures", "tanks", "markets", "ticker_wall", "arcade", "f1"))
 SCREENS = ("clock", "finance", "sportsbook", "departures", "markets", "news", "weather", "tanks", "ticker_wall",
            "town", "arcade", "f1")
 SCALE, FPS = 3, 10

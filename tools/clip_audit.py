@@ -71,9 +71,7 @@ async def main():
     from tools.render_demo import PLUGINS, community
     seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 40
     wanted = sys.argv[2:]
-    paths = {**PLUGINS, "traffic": "plugins/traffic/rackticker_traffic.py",
-             "url_data": "plugins/url-data/rackticker_url_data.py",
-             **community("quakes", "surf", "now_playing", "onboard")}
+    paths = {**PLUGINS, **community("traffic", "url_data", "quakes", "surf", "now_playing", "onboard")}
     registry = PluginRegistry()
     for name, path in paths.items():
         spec = importlib.util.spec_from_file_location(f"audit_{name}", ROOT / path)

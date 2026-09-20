@@ -1,8 +1,0 @@
-{
-  "id": "url_data",
-  "name": "Data from a link",
-  "entry": "rackticker_url_data.py",
-  "description": "Any number or text from a JSON web address, shown as a big clean card. No code: paste a link and the field to show.",
-  "author": "RackTicker",
-  "version": "1.0.0"
-}

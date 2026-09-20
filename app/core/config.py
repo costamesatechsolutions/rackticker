@@ -208,9 +208,9 @@ def validate_config(raw, registry=None):
 # A first run shows real screens from the plugins that ship, in an order that
 # mixes quick glances with longer reads; demo-data screens are left out.
 STARTER = (("clock", 8), ("weather", 10), ("finance", 20), ("sportsbook", 24), ("news", 30), ("tixclock", 15),
-           ("flight", 12), ("clock", 8), ("town", 20), ("arcade", 60))
+           ("flight", 12), ("clock", 8), ("town", 20))
 # Shipped but off on a fresh install, one switch away on the Plugins page: regional or niche.
-OPTIONAL = {"traffic", "f1", "markets"}
+OPTIONAL = set()
 
 
 def starter(registry):

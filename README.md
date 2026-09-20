@@ -10,7 +10,7 @@
 
 Live LED signage for your server rack. RackTicker turns two 64×32 RGB LED panels and a Raspberry Pi into a 128×32 ticker
 that lives in a 19-inch rack: stock tape, odds boards, news, flights overhead,
-freeway traffic, weather, arcade games and whatever you build next. Every screen is
+weather, a pixel town and whatever you build next, with more in the community catalog. Every screen is
 a plugin, every bundled data source is free and needs no key, and nothing needs a
 cloud account. Run it on your computer first: the browser emulator shows the exact
 pixels the panels will.
@@ -27,19 +27,11 @@ See [Make a screen](#make-a-screen) and [docs/plugins.md](docs/plugins.md).
 | --- | --- |
 | Stock tape | The day's movers and your watchlist with company names, sparklines and each company's latest headline, under a flipping index header |
 | Sportsbook | A Vegas odds board: spreads, totals and moneylines, big live scores with the bases, count and outs or the down and distance, banners for big plays, fireworks when your team scores |
-| Prediction markets | Polymarket and Kalshi: each question whole and still, then its odds slide up |
 | News desk | Network channels as a TV lower third or a Times Square zipper, in mixed-case headlines |
 | Flights | The planes overhead like an airport board: airline mark, flight number and route, with the destination, aircraft, altitude and time to go turning over beneath; a departures-style list when several are about; a fly-by when one is overhead. Local ADS-B receiver or a free network feed |
-| Traffic | California freeways near you, found from your location: CHP incidents, the real overhead message signs, and travel-time signs as they read over the road |
 | Weather | Animated sky, hourly chart and four-day forecast |
 | Pixel Town | A living city on real time: sunrise, lit windows at night, your weather, real flights overhead |
-| Arcade | Pixel Quest, Tetris, Snake, Breakout, Invaders and Pong, played live by AIs |
-| Shop sign | Your own words on a storefront sign: letters that assemble, drop and spin, in taqueria, Vegas, arena and Times Square styles |
-| Data from a link | Any value from a JSON address as a big card, no code |
-| Clocks, F1 | Desk clock (with a 4:20 surprise), TIX Clock, the next Grand Prix |
-
-Traffic (California only), F1 and Prediction markets ship switched off on a fresh install;
-turn them on under Plugins.
+| Clocks | Desk clock (with a 4:20 surprise) and TIX Clock |
 
 **[Community plugins](https://github.com/costamesatechsolutions/rackticker-community-plugins)** live in their own repository and install from the
 Plugins page with one click:
@@ -54,6 +46,12 @@ Plugins page with one click:
 | [Now playing](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/now_playing) | The song you're listening to like an old car stereo: album art, scrolling title, track and time, spectrum analyser. Spotify or Home Assistant |
 | [Virtual Aquarium](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/virtual_aquarium) | A tank of clownfish, angelfish and neon tetras, with swaying plants and a wandering snail |
 | [Retro Screensavers](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/retro_savers) | 3D pipes, Mystify, a starfield, a bouncing badge and marquee text |
+| [Arcade](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/arcade) | Pixel Quest, Tetris, Snake, Breakout, Invaders and Pong, played live by AIs |
+| [Formula 1](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/f1) | A start-light gantry counting down to lights out, the last race's podium and the championship fight |
+| [Prediction markets](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/markets) | Polymarket and Kalshi: each question whole and still, then its odds slide up |
+| [LED sign](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/ticker_wall) | Your own words on a storefront sign: letters that assemble, drop and spin, in taqueria, Vegas, arena and Times Square styles |
+| [Freeway traffic](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/traffic) | California freeways near you: CHP incidents, the real overhead message signs, and travel-time signs as they read over the road |
+| [Data from a link](https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/url_data) | Any value from a JSON address as a big card, no code |
 
 Screens finish the headline, card or lap they are showing before the playlist moves
 on, skip themselves when they have nothing to show, and move on a frame-locked clock

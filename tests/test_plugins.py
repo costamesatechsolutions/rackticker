@@ -99,13 +99,9 @@ class PluginTests(unittest.TestCase):
                 self.assertIn("rackticker-source/" + name, names)
             self.assertIn("rackticker-source/plugins/local-adsb/rackticker_local_adsb.py", names)
             self.assertIn("rackticker-source/plugins/free-sports/rackticker_free_sports.py", names)
-            self.assertIn("rackticker-source/plugins/f1-schedule/rackticker_f1.py", names)
-            self.assertIn("rackticker-source/plugins/prediction-markets/rackticker_markets.py", names)
             self.assertIn("rackticker-source/plugins/finance/rackticker_finance.py", names)
             self.assertIn("rackticker-source/plugins/weather/rackticker_weather.py", names)
             self.assertIn("rackticker-source/plugins/news/rackticker_news.py", names)
-            self.assertIn("rackticker-source/plugins/arcade/rackticker_arcade.py", names)
-            self.assertIn("rackticker-source/plugins/ticker-wall/rackticker_ticker_wall.py", names)
             self.assertFalse(any("exports/" in n or n.endswith("config/config.json") or ".venv/" in n for n in names))
             self.assertIn(b"GNU AFFERO", archive.read("rackticker-source/LICENSE"))
 

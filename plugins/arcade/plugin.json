@@ -1,8 +1,0 @@
-{
-  "id": "arcade",
-  "name": "Arcade",
-  "entry": "rackticker_arcade.py",
-  "description": "Ambient arcade: real games, played live by simple AIs at native resolution.",
-  "author": "RackTicker",
-  "version": "1.0.0"
-}

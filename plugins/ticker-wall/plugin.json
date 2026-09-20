@@ -1,8 +1,0 @@
-{
-  "id": "ticker_wall",
-  "name": "LED sign",
-  "entry": "rackticker_ticker_wall.py",
-  "description": "Programmable LED sign: the storefront kind that spells words out of flying pixels, drops letters in, spins slot reels and chases marquee bulbs.",
-  "author": "RackTicker",
-  "version": "1.0.0"
-}

@@ -38,14 +38,14 @@ keeps the other leagues working when one request fails.
 
 ## Formula 1
 
-The bundled `f1` plugin shows the next race, circuit, round and local start time
+The community `f1` plugin shows the next race, circuit, round and local start time
 using the open-source [Jolpica F1 API](https://github.com/jolpica/jolpica-f1).
 It caches the schedule for 15 minutes by default. Configure `timezone` and
 `refresh_seconds` under `plugins.f1`.
 
 ## Prediction markets
 
-The bundled `markets` plugin rotates active public Kalshi and Polymarket
+The community `markets` plugin rotates active public Kalshi and Polymarket
 questions by recent activity. It displays the current implied YES probability
 and does not contain authentication, wallet, order, or trading code. The feeds
 are cached and partial failures are isolated, so one venue can remain on screen
@@ -54,12 +54,12 @@ under `plugins.markets`.
 
 ## Ticker scenes
 
-The bundled `ticker_wall` plugin is a data-free presentation module with arena,
+The community `ticker_wall` plugin is a data-free presentation module with arena,
 Times Square and taqueria scenes. Each scene accepts pipe-separated custom text,
 and `auto` mode rotates all three. It deliberately animates small borders and
 text rather than panel brightness, avoiding full-screen flashes.
 
-The bundled `arcade` module adds original autonomous runner, platform and cap
+The community `arcade` plugin adds original autonomous runner, platform and cap
 shuffle scenes designed for the 128×32 display. It uses no ROMs, game assets,
 network data or input device. `auto` rotates the scenes; each can also be held
 individually.

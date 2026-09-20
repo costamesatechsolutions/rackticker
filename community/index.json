@@ -2,11 +2,32 @@
   "about": "Community plugins for RackTicker: one folder each, installable straight from its URL. Add yours with a pull request — one entry pointing at a public GitHub folder that contains plugin.json.",
   "plugins": [
     {
+      "id": "arcade",
+      "name": "Arcade",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Ambient arcade: real games, played live by simple AIs at native resolution.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/arcade"
+    },
+    {
       "id": "departures",
       "name": "Departures",
       "author": "Costa Mesa Tech Solutions",
       "description": "Live station boards: the London Underground in its own line colours, Metrolink and Amtrak across the United States, BART, and seven European stations, each drawn the way that country's boards look, with trains pulling into the platform.",
       "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/departures"
+    },
+    {
+      "id": "f1",
+      "name": "Formula 1",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Formula 1: a start-light gantry counting down to lights out, the last race's podium and the championship fight. Key-free Jolpica (Ergast-compatible) API.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/f1"
+    },
+    {
+      "id": "markets",
+      "name": "Prediction markets",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Read-only public prediction-market odds board; no trading capability.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/markets"
     },
     {
       "id": "now_playing",
@@ -49,6 +70,27 @@
       "author": "Costa Mesa Tech Solutions",
       "description": "Real levels as sloshing water: California's big reservoirs, and the space station's urine and water tanks when NASA's live feed answers.",
       "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/tanks"
+    },
+    {
+      "id": "ticker_wall",
+      "name": "LED sign",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Programmable LED sign: the storefront kind that spells words out of flying pixels, drops letters in, spins slot reels and chases marquee bulbs.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/ticker_wall"
+    },
+    {
+      "id": "traffic",
+      "name": "Freeway traffic",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Freeway traffic board: live CHP incidents on nearby freeways, shown as a freeway shield, what happened, where, and how long ago.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/traffic"
+    },
+    {
+      "id": "url_data",
+      "name": "Data from a link",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Any number or text from a JSON web address, shown as a big clean card. No code: paste a link and the field to show.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/url_data"
     },
     {
       "id": "virtual_aquarium",

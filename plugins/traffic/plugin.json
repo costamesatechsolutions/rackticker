@@ -1,8 +1,0 @@
-{
-  "id": "traffic",
-  "name": "Freeway traffic",
-  "entry": "rackticker_traffic.py",
-  "description": "Freeway traffic board: live CHP incidents on nearby freeways, shown as a freeway shield, what happened, where, and how long ago.",
-  "author": "RackTicker",
-  "version": "1.0.0"
-}

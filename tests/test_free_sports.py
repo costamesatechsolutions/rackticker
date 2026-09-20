@@ -17,6 +17,43 @@ def load_plugin_module():
     return module
 
 
+def load_sportsbook():
+    path = Path(__file__).resolve().parents[1] / "plugins/sportsbook/rackticker_sportsbook.py"
+    spec = util.spec_from_file_location("sportsbook_test", path)
+    module = util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class LiveOddsTests(unittest.TestCase):
+    """A score means more next to the number the game is being measured against."""
+
+    def setUp(self):
+        self.book = load_sportsbook()
+        self.game = Game(league="NBA", status="live", detail="Q3 4:12",
+                         home=Team(abbreviation="LAL", score=88, color="552583", logo_png=None),
+                         away=Team(abbreviation="BOS", score=91, color="007A33", logo_png=None))
+
+    def line(self, extra):
+        return self.book.Sportsbook.live_line(self.game, extra)
+
+    def test_the_favourite_is_the_side_laying_the_points(self):
+        self.assertEqual(self.line({"home_spread": "-4.5", "away_spread": "+4.5", "total": "224.5"}),
+                         "LAL -4.5  O/U 224.5")
+        self.assertEqual(self.line({"home_spread": "+3", "away_spread": "-3"}), "BOS -3")
+
+    def test_a_total_on_its_own_is_still_worth_showing(self):
+        self.assertEqual(self.line({"total": "48"}), "O/U 48")
+
+    def test_a_game_with_no_market_says_nothing(self):
+        self.assertEqual(self.line({}), "")
+        self.assertEqual(self.line({"home_spread": "PK", "away_spread": "PK"}), "")
+
+    def test_it_never_outgrows_the_corner_it_sits_in(self):
+        long = self.line({"home_spread": "-10.5", "away_spread": "+10.5", "total": "1234.5"})
+        self.assertLessEqual(len(long), 20)
+
+
 class FreeSportsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

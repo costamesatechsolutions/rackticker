@@ -117,7 +117,8 @@ class Sportsbook(Module):
         t = context.animation_time
         frame = new_frame()
         extra = getattr(game, "extra", None) or {}
-        self._header(frame, game, extra, t)
+        odds = self.live_line(game, extra) if context.config["plugins"][self.name]["live_odds"] else ""
+        self._header(frame, game, extra, t, odds)
         body = Image.new("RGB", (128, BODY_HEIGHT))
         # The line flips once per card, halfway through, in step with the card
         # itself: a clock of its own flipped at odd moments mid-read.
@@ -133,7 +134,7 @@ class Sportsbook(Module):
         return frame
 
     @staticmethod
-    def _header(frame, game, extra, t):
+    def _header(frame, game, extra, t, odds=""):
         draw = ImageDraw.Draw(frame)
         league = (game.league or "GAME").upper()[:5]
         # Full-size lettering in a brightened league colour reads at a glance;
@@ -147,6 +148,10 @@ class Sportsbook(Module):
             x += 5
         right = extra.get("broadcast") or extra.get("book") or ""
         detail = game.detail
+        # The line on a live game, in the corner the channel sits in before kick-off.
+        # A score without the number it is being measured against is half the story.
+        if live and odds and math.floor(t / 4) % 2 == 1:
+            right = odds or right
         if live and extra.get("down"):  # football: the down and distance, like the TV bar
             detail, right = f"{game.detail}  {extra['down']}", extra.get("spot", "")
         elif game.status != "pregame" and extra.get("away_sog"):  # hockey: shots on goal
@@ -159,6 +164,20 @@ class Sportsbook(Module):
             draw_tiny(frame, right, 127 - tiny_width(right), 1, DULL)
         for px in range(0, 128, 2):
             draw.point((px, 7), fill=(70, 50, 12))
+
+    @staticmethod
+    def live_line(game, extra):
+        """The market on one line: who is favoured and by how much, then the total."""
+        home, away = extra.get("home_spread", ""), extra.get("away_spread", "")
+        favourite, spread = "", ""
+        for side, value in (("home", home), ("away", away)):
+            if value.startswith("-"):
+                favourite = (game.home if side == "home" else game.away).abbreviation
+                spread = value
+        parts = [f"{favourite} {spread}"] if favourite and spread else []
+        if extra.get("total"):
+            parts.append(f"O/U {extra['total']}")
+        return "  ".join(parts)[:20]
 
     @staticmethod
     def _mark(body, team, x):
@@ -312,5 +331,8 @@ def validate(settings):
 
 
 plugin = Plugin("sportsbook", "Sportsbook board", module=Sportsbook,
-                defaults={"card_seconds": 8}, validate_settings=validate,
-    ui={"card_seconds": {"type": "slider", "min": 3, "max": 30, "unit": "s", "label": "Seconds per game"}})
+                defaults={"card_seconds": 8, "live_odds": True}, validate_settings=validate,
+                help={"live_odds": "show the spread and total on games already under way, "
+                                   "alternating with the channel or the shots on goal"},
+    ui={"card_seconds": {"type": "slider", "min": 3, "max": 30, "unit": "s", "label": "Seconds per game"},
+        "live_odds": {"label": "Lines on live games"}})

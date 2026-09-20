@@ -370,7 +370,7 @@ class Town(Module):
         # With the Departures plugin the trains keep their own pace and the board shows
         # real ones. Without it the town runs a timetable of its own, and the trains
         # arrive and leave on it, so the board is never for a train that never comes.
-        self.scheduled, self.served, self.wet = False, None, False
+        self.scheduled, self.served, self.wet, self.real_data = False, None, False, True
 
     def refresh_interval(self, context):
         return 1 / context.config["display"]["fps"]
@@ -647,7 +647,9 @@ class Town(Module):
         kind = weather.get("icon", "sun")
         flight_snap = context.snapshots.get("flight")
         flight = flight_snap.data if flight_snap and not flight_snap.stale else None
-        surf_snap = context.snapshots.get("surf")
+        settings = context.config["plugins"][self.name]
+        real = self.real_data = settings.get("real_data", True)
+        surf_snap = context.snapshots.get("surf") if real else None
         surf = surf_snap.data if surf_snap and isinstance(surf_snap.data, dict) and not surf_snap.stale else None
         self._simulate(dt, hour, kind, flight)
         self._sea_step(dt, surf)
@@ -706,7 +708,7 @@ class Town(Module):
         """Where the next train goes and when, from the Departures plugin if it is
         installed. Its board is a real one, so the town's station shows what it
         shows; otherwise the town runs its own service."""
-        snap = context.snapshots.get("departures")
+        snap = context.snapshots.get("departures") if self.real_data else None
         data = snap.data if snap and isinstance(snap.data, dict) and not snap.stale else None
         self.scheduled = False
         for board in (data or {}).values():
@@ -1393,10 +1395,15 @@ class Town(Module):
 
 
 def validate(settings):
+    if not isinstance(settings.get("real_data", True), bool):
+        raise ValueError("real_data must be on or off")
     name = settings.get("town_name")
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9 ]{1,10}", name):
         raise ValueError("town_name must be 1–10 letters, numbers or spaces")
 
 
-plugin = Plugin("town", "Pixel Town", module=Town, defaults={"town_name": "RACKVILLE"}, validate_settings=validate,
-                help={"town_name": "Shown on the rooftop sign (up to 10 characters)"})
+plugin = Plugin("town", "Pixel Town", module=Town, defaults={"town_name": "RACKVILLE", "real_data": True},
+                validate_settings=validate,
+                help={"town_name": "Shown on the rooftop sign (up to 10 characters)",
+                      "real_data": "Use the real tide and departures when the Surf and Departures plugins are installed. "
+                                   "Off, the town keeps its own sea and timetable"})

@@ -380,6 +380,21 @@ class PixelTownLifeTests(unittest.TestCase):
         self.assertTrue(went_in, "nobody went into an open shop")
         self.assertGreater(person["bag"], 0)
 
+    def test_the_town_can_ignore_the_real_departures_and_keep_its_own(self):
+        class Snap:
+            stale = False
+            data = {"lax": {"rows": [{"destination": "San Diego", "time": datetime(2026, 9, 20, 9, 18)}]}}
+
+        class Ctx:
+            snapshots = {"departures": Snap()}
+        town = self.town()
+        town.real_data = False
+        where, _ = town._departure(Ctx(), datetime(2026, 9, 22, 12, 14, 50))
+        self.assertIn(where, TOWN.DESTINATIONS)
+        self.assertTrue(town.scheduled)
+        with self.assertRaises(ValueError):
+            TOWN.validate({"town_name": "TOWN", "real_data": "yes"})
+
     def test_it_rains_umbrellas(self):
         town, frame = self.town(), TOWN.new_frame() if hasattr(TOWN, "new_frame") else None
         from PIL import Image

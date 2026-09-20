@@ -29,12 +29,14 @@ from app.core.fonts import draw_tiny, tiny_width
 from app.core.fx import dim, mix, plot, sprite, stamp
 
 SKY_KEYS = ((0.0, (3, 5, 20), (12, 18, 44)), (5.2, (3, 5, 20), (12, 18, 44)),
-            (6.3, (40, 28, 80), (220, 110, 64)), (7.6, (16, 52, 120), (80, 140, 190)),
-            (16.8, (16, 52, 120), (80, 140, 190)), (18.3, (60, 28, 88), (232, 104, 56)),
+            (6.3, (40, 28, 80), (220, 110, 64)), (7.6, (30, 100, 205), (130, 196, 238)),
+            (16.8, (30, 100, 205), (130, 196, 238)), (18.3, (60, 28, 88), (232, 104, 56)),
             (19.5, (7, 9, 32), (28, 28, 66)), (24.0, (3, 5, 20), (12, 18, 44)))
 WINDOW_KEYS = ((0, .26), (3, .05), (6, .14), (8, .08), (12, .04), (17, .2), (20, .62), (23, .38), (24, .26))
 # Even at 4 AM a few night owls, cabs and delivery drivers keep the town alive.
 BUSY_KEYS = ((0, .3), (5, .25), (7, .6), (12, .9), (18, .85), (22, .45), (24, .3))
+# What the buildings are painted; the skyline dims them as the light goes.
+DAY_COLORS = ((156, 86, 72), (200, 184, 150), (98, 120, 158), (112, 142, 124), (184, 142, 100), (150, 150, 164))
 SKINS = ((255, 214, 170), (224, 172, 120), (176, 120, 80), (120, 80, 52))
 SHIRTS = ((230, 60, 60), (60, 140, 240), (250, 200, 60), (80, 200, 120), (240, 240, 240), (200, 90, 200))
 CAR_COLORS = ((210, 40, 40), (230, 230, 230), (40, 90, 210), (250, 200, 30), (110, 110, 124), (40, 160, 90))
@@ -67,6 +69,16 @@ PLANE = ("...w...", "wwwwwww", "..www..")
 WORLD, VIEW = 384, 128
 BEACH_END, TOWN_END = 104, 280
 STREET_Y, TRUCK_X = 25, 150
+# The road runs under the town at both ends: cars come out of a dark portal and go
+# back into one, so none of them ever drives onto the sand or down the railway.
+ROAD_L, ROAD_R = BEACH_END - 1, TOWN_END - 18        # where a car is fully inside a portal
+PORTAL_WEST, PORTAL_EAST = (BEACH_END - 1, BEACH_END + 13), (TOWN_END - 18, TOWN_END - 9)
+PEOPLE_EAST = TOWN_END - 12                          # the town's walkers turn back here
+TREES, BENCH_X = (119, 180, 206, 260), 240   # street trees, and a bench with somebody on it
+BUSKER_X = 222                                       # somebody with a guitar, between two shops
+KITE_X, KID_X = 78, 69                               # a kid flying a kite on the beach
+TOWELS = ((42, (60, 170, 210), (216, 52, 44)), (62, (90, 200, 120), (250, 200, 60)))  # x, towel, swimsuit
+UMBRELLAS = ((220, 60, 50), (60, 140, 240), (250, 200, 60), (80, 200, 120))
 # The beach, looking along it: the sea is the band above and the sand the band
 # below, the same way the town puts its buildings above its road. What moves is
 # the line between them — the wave running up the sand and draining back off.
@@ -159,7 +171,7 @@ def city(seed=11):
     while x < TOWN_END - 8:
         # Fewer, broader buildings read as a skyline instead of visual noise.
         width, height = min(rng.randint(14, 24), TOWN_END - x), rng.randint(8, 16)
-        color = rng.choice(((34, 38, 52), (46, 40, 48), (30, 44, 54), (50, 46, 42), (38, 34, 46)))
+        color = rng.choice(DAY_COLORS)
         top = STREET_Y - height
         windows = tuple((wx, wy, rng.random(), rng.choice(((255, 206, 110), (255, 236, 170), (150, 200, 255))))
                         for wy in range(top + 2, STREET_Y - 1, 3)
@@ -188,16 +200,34 @@ def skyline(bucket):
     hour = bucket / 12
     occupied = _curve(WINDOW_KEYS, hour) * .75
     daylight = 7.5 <= hour <= 17.5
+    # Painted in daylight colours and dimmed with the light, so the same street is
+    # brick and cream at noon and a dark row of windows at midnight.
+    factor = .2 + .8 * max(0.0, min(1.0, (_curve(LIGHT_KEYS, hour) - .13) / .87))
     layer = Image.new("RGBA", (WORLD, 32))
     draw = ImageDraw.Draw(layer)
-    for x, width, top, color, windows in BUILDINGS:
+    signed = {sign[0] for sign in SIGNS}
+    for x, width, top, day_color, windows in BUILDINGS:
+        color = dim(day_color, factor)
         draw.rectangle((x, top, x + width - 1, STREET_Y - 1), fill=(*color, 255))
-        draw.line((x, top, x + width - 1, top), fill=(*mix(color, (255, 255, 255), .18), 255))
+        draw.line((x, top, x + width - 1, top), fill=(*mix(color, (255, 255, 255), .22), 255))
+        draw.line((x, top + 1, x + width - 1, top + 1), fill=(*dim(color, .8), 255))
+        if x not in signed:        # what is on the roof: the sign's buildings keep theirs clear
+            prop = (x * 7 + width) % 5
+            dark = dim(color, .55)
+            if prop == 0:          # an aerial
+                draw.line((x + 3, top - 4, x + 3, top - 1), fill=(*dark, 255))
+                draw.point((x + 4, top - 3), fill=(*dark, 255))
+            elif prop == 1:        # an air-conditioning unit
+                draw.rectangle((x + 2, top - 2, x + 5, top - 1), fill=(*dim((150, 154, 164), factor), 255))
+            elif prop == 2:        # a water tank on legs
+                draw.rectangle((x + width - 6, top - 3, x + width - 3, top - 2), fill=(*dim((150, 100, 70), factor), 255))
+                draw.point((x + width - 6, top - 1), fill=(*dark, 255))
+                draw.point((x + width - 3, top - 1), fill=(*dark, 255))
         for wx, wy, threshold, glow in windows:
             if threshold < occupied:
                 fill = glow
             elif daylight:
-                fill = mix(color, (120, 150, 180), .18)
+                fill = mix(color, (150, 190, 225), .45)
             else:
                 fill = dim(color, .7)
             layer.putpixel((wx, wy), (*fill, 255))
@@ -327,7 +357,7 @@ class Town(Module):
         for _ in range(7):
             self._spawn_person(self.rng.uniform(0, WORLD))
         for lane in (0, 1):
-            self._spawn_car(lane, self.rng.uniform(BEACH_END, TOWN_END))
+            self._spawn_car(lane, self.rng.uniform(PORTAL_WEST[1] + 4, PORTAL_EAST[0] - 12))
         self.clouds = [[self.rng.uniform(0, WORLD), self.rng.uniform(2, 9), self.rng.uniform(.8, 2.2)]
                        for _ in range(6)]
         self.birds = []
@@ -337,6 +367,10 @@ class Town(Module):
         self.train, self.train_wait = None, self.rng.uniform(4, 14)
         self.board = ("", "")
         self._hour = 12.0
+        # With the Departures plugin the trains keep their own pace and the board shows
+        # real ones. Without it the town runs a timetable of its own, and the trains
+        # arrive and leave on it, so the board is never for a train that never comes.
+        self.scheduled, self.served, self.wet = False, None, False
 
     def refresh_interval(self, context):
         return 1 / context.config["display"]["fps"]
@@ -348,22 +382,43 @@ class Town(Module):
                             "skin": self.rng.choice(SKINS), "hungry": self.rng.random() < .45,
                             "pause": 0.0, "fed": False, "dog": self.rng.random() < .08,
                             "slot": None, "carry": 0.0, "board": None,
+                            # Some are off to a shop: they go in, and come out with a bag.
+                            "inside": 0.0, "bag": 0.0, "visited": set(),
                             # A few of them are going somewhere: they wait on the
                             # platform and get on the train when it opens its doors.
                             "traveller": self.rng.random() < .3})
+
+    def _errand(self, person, dt, hour):
+        """Somebody passing an open shop's door sometimes goes in."""
+        if person["traveller"] or person["x"] < PORTAL_WEST[1] or (person["hungry"] and not person["fed"]):
+            return      # those are off to the station, or to the taco truck
+        reach = person["speed"] * dt * 1.6 + .6
+        for index, (x, width, closes, _) in enumerate(SHOPS):
+            if index in person["visited"] or not 8 <= hour < closes:
+                continue
+            if abs(person["x"] - (x + width - 2)) <= reach:
+                person["visited"].add(index)
+                if self.rng.random() < .3:
+                    person["inside"] = self.rng.uniform(3, 8)
+                    person["x"] = float(x + width - 2)
+                return
 
     def _spawn_car(self, lane, x=None):
         # The road belongs to the town: it runs from the sea wall to the tunnel
         # mouth, and nothing drives onto the sand or down the railway.
         direction = 1 if lane == 0 else -1
         if x is None:
-            x = float(BEACH_END - 14) if direction > 0 else float(TOWN_END + 14)
+            x = float(ROAD_L) if direction > 0 else float(ROAD_R + 1)
         # One vehicle in five is a van: something bigger to look at, and it holds
         # the traffic up behind it the way a van does.
         van = self.rng.random() < .2
+        # Now and then it is a patrol car, in a hurry, with its lights going.
+        police = not van and self.rng.random() < .07
         self.cars.append({"x": float(x), "dir": direction,
                           "lane": lane, "speed": self.rng.uniform(12, 20) if van else self.rng.uniform(18, 34),
                           "color": self.rng.choice(VAN_COLORS if van else CAR_COLORS), "van": van})
+        if police:
+            self.cars[-1].update(police=True, color=(238, 238, 244), speed=self.rng.uniform(38, 46))
 
     @staticmethod
     def _slot_x(slot):
@@ -417,6 +472,15 @@ class Town(Module):
         out after midnight the way a real one does."""
         train = self.train
         if train is None:
+            if self.scheduled:
+                due = self._next_due(hour)
+                # Arriving takes about ten seconds, so it leaves the platform on the dot.
+                if (due - hour * 60) * 60 <= 24 and self.served != due:
+                    self.served = due
+                    self.train = {"x": float(WORLD + 40), "speed": 62.0, "state": "arriving", "wait": 0.0,
+                                  "lit": rng.random() < .8, "due": due,
+                                  "to": DESTINATIONS[(due // 15) % len(DESTINATIONS)]}
+                return
             self.train_wait -= dt
             if self.train_wait > 0:
                 return
@@ -440,7 +504,10 @@ class Town(Module):
                         self.people[-1]["traveller"] = False
         elif train["state"] == "stopped":
             train["wait"] -= dt
-            if train["wait"] <= 0:
+            # On the town's timetable it goes when the clock says, not when it is bored.
+            due = train.get("due")
+            late = due is not None and hour * 60 < due and (due - hour * 60) * 60 < 90
+            if train["wait"] <= 0 and not late:
                 train["state"] = "leaving"
         else:
             train["speed"] = min(70.0, train["speed"] + 26 * dt)
@@ -489,6 +556,7 @@ class Town(Module):
         rng = self.rng
         busy = _curve(BUSY_KEYS, hour)
         wet = weather in ("rain", "storm", "snow")
+        self.wet = wet
         truck_open = 11 <= hour < 14 or 17 <= hour < 22
         self.people_wait -= dt
         if self.people_wait <= 0 and len(self.people) < 12:
@@ -497,6 +565,13 @@ class Town(Module):
         for person in self.people:
             if person["carry"] > 0:
                 person["carry"] -= dt
+            if person["bag"] > 0:
+                person["bag"] -= dt
+            if person["inside"] > 0:            # in the shop, out of sight
+                person["inside"] -= dt
+                if person["inside"] <= 0:
+                    person["bag"] = 7.0
+                continue
             if person["slot"] is not None:
                 self._queue_step(person, dt, rng, truck_open)
                 continue
@@ -506,11 +581,16 @@ class Town(Module):
                 self._platform_step(person, dt, rng)
                 continue
             person["x"] += person["dir"] * person["speed"] * dt * (1.5 if wet else 1)
+            self._errand(person, dt, hour)
+            # The high street ends at the tunnel wall. Only somebody catching a train
+            # goes on through the door in it; everyone else has had enough and turns back.
+            if person["dir"] > 0 and PEOPLE_EAST <= person["x"] < TOWN_END and not person["traveller"]:
+                person["dir"] = -1
         self.people = [p for p in self.people if -8 < p["x"] < WORLD + 8 and not p.get("gone")]
         self.car_wait -= dt
         if self.car_wait <= 0:
             lane = rng.randrange(2)
-            edge = BEACH_END if lane == 0 else TOWN_END
+            edge = ROAD_L if lane == 0 else ROAD_R
             if not any(c["lane"] == lane and abs(c["x"] - edge) < 16 for c in self.cars):
                 self._spawn_car(lane)
             self.car_wait = rng.uniform(.8, 4) / max(.15, busy)
@@ -519,7 +599,7 @@ class Town(Module):
                      and 0 < (c["x"] - car["x"]) * car["dir"] < 14]
             speed = min(car["speed"], min((c["speed"] for c in ahead), default=car["speed"]))
             car["x"] += car["dir"] * speed * dt
-        self.cars = [c for c in self.cars if BEACH_END - 18 < c["x"] < TOWN_END + 18]
+        self.cars = [c for c in self.cars if ROAD_L - 1 < c["x"] < ROAD_R + 2]
         for cloud in self.clouds:
             cloud[0] = (cloud[0] + cloud[2] * dt) % (WORLD + 22)
         daylight = 6.5 < hour < 19.5
@@ -595,8 +675,8 @@ class Town(Module):
         self._street(frame, draw, pixels, night, hour, t, left, right)
         self._station(frame, draw, pixels, night, t, left, right)
         for person in sorted(self.people, key=lambda p: p["x"]):
-            if left - 10 < person["x"] < right + 10:
-                self._person(frame, pixels, person, t, ground_row(person["x"]))
+            if left - 10 < person["x"] < right + 10 and person["inside"] <= 0:
+                self._person(frame, pixels, person, t, ground_row(person["x"]), self.wet)
         self._foreground(frame, draw, pixels, night, hour, t, left, right, light)
         self._weather(frame, draw, pixels, kind, t, left, right)
         # The panel is the camera's view of the town, not the whole town.
@@ -615,7 +695,8 @@ class Town(Module):
         for lane in (0, 1):
             for car in self.cars:
                 if car["lane"] == lane and left - 16 < car["x"] < right + 16:
-                    self._car(frame, pixels, car, night)
+                    self._car(frame, pixels, car, night, t)
+        self._portals(draw, night, left, right)
         self._train_at(frame, draw, pixels, night, t)
         self._tunnel(draw, night, left, right)
         self._beach_front(frame, draw, pixels, night, t, left, right, light)
@@ -627,6 +708,7 @@ class Town(Module):
         shows; otherwise the town runs its own service."""
         snap = context.snapshots.get("departures")
         data = snap.data if snap and isinstance(snap.data, dict) and not snap.stale else None
+        self.scheduled = False
         for board in (data or {}).values():
             for row in (board or {}).get("rows") or []:
                 where = str(row.get("destination") or "").strip().upper()[:14]
@@ -637,11 +719,17 @@ class Town(Module):
                     return where, when.strftime("%H:%M")
                 text = str(when or "")
                 return where, text[11:16] if len(text) >= 16 else "--:--"
-        # No feed: a service of its own, on the quarter hour.
-        minute = (now.minute // 15 + 1) * 15
-        hour = (now.hour + minute // 60) % 24
-        where = DESTINATIONS[(now.hour * 4 + now.minute // 15) % len(DESTINATIONS)]
-        return where, f"{hour:02d}:{minute % 60:02d}"
+        # No feed: the town's own timetable, which the trains keep.
+        self.scheduled = True
+        due = self._next_due(now.hour + now.minute / 60 + now.second / 3600)
+        return DESTINATIONS[(due // 15) % len(DESTINATIONS)], f"{due // 60 % 24:02d}:{due % 60:02d}"
+
+    @staticmethod
+    def _next_due(hour):
+        """The next departure on the town's own timetable, in minutes: every quarter
+        hour, thinning to every half hour late at night the way a real service does."""
+        step = 30 if hour >= 23 or hour < 5 else 15
+        return (int(hour * 60 // step) + 1) * step
 
     @staticmethod
     def _truck_palette(truck_open, t):
@@ -711,7 +799,7 @@ class Town(Module):
 
     def _clouds(self, draw, kind):
         count = {"sun": 0, "partly": 1, "cloud": 2, "fog": 2, "rain": 2, "storm": 3, "snow": 2}.get(kind, 0)
-        color = (80, 84, 96) if kind in ("rain", "storm") else (180, 190, 205)
+        color = (80, 84, 96) if kind in ("rain", "storm") else (236, 240, 246)
         for x, y, _ in self.clouds[:count]:
             x, y = round(x) - 12, round(y)
             draw.ellipse((x, y + 1, x + 7, y + 5), fill=color)
@@ -767,6 +855,8 @@ class Town(Module):
         draw.rectangle((start, STREET_Y - 6, end, STREET_Y - 1), fill=(38, 38, 46) if night else (52, 52, 60))
         draw.rectangle((start, STREET_Y - 6, end, STREET_Y - 6), fill=(58, 58, 68) if night else (74, 74, 84))
         self._shops(draw, hour, left, right)
+        self._planters(frame, draw, pixels, hour, left, right)
+        self._busker(frame, pixels, hour, t, left, right)
         draw.rectangle((start, STREET_Y, end, STREET_Y), fill=(70, 70, 76))
         draw.rectangle((start, STREET_Y + 1, end, 31), fill=(24, 24, 28))
         for x in range(max(BEACH_END, start - start % 8), end, 8):
@@ -780,6 +870,66 @@ class Town(Module):
                 plot(frame, pixels, pole + 1, STREET_Y - 7, (255, 220, 140))
                 for spread in range(-2, 3):
                     plot(frame, pixels, pole + 1 + spread, STREET_Y, (110, 96, 64))
+
+    def _planters(self, frame, draw, pixels, hour, left, right):
+        """Trees in the gaps between the shops, and a bench with somebody on it."""
+        light = max(.3, _curve(LIGHT_KEYS, hour))
+        for x in TREES:
+            if left - 8 < x < right + 8:
+                for row in range(STREET_Y - 4, STREET_Y):
+                    paint(frame, pixels, x, row, dim((120, 84, 50), light))
+                for dx, dy, shade_of in ((-2, 0, 0), (-1, 0, 1), (0, 0, 1), (1, 0, 0), (2, 0, 0),
+                                         (-2, -1, 0), (-1, -1, 1), (0, -1, 1), (1, -1, 0), (2, -1, 0),
+                                         (-1, -2, 1), (0, -2, 1), (1, -2, 0), (0, -3, 0)):
+                    green = (74, 186, 96) if shade_of else (44, 146, 72)
+                    paint(frame, pixels, x + dx, STREET_Y - 5 + dy, dim(green, light))
+        if left - 10 < BENCH_X < right + 10:
+            wood = dim((150, 104, 60), light)
+            for dx in range(8):
+                paint(frame, pixels, BENCH_X + dx, STREET_Y - 2, wood)
+                paint(frame, pixels, BENCH_X + dx, STREET_Y - 4, dim(wood, .8))
+            for leg in (1, 6):
+                paint(frame, pixels, BENCH_X + leg, STREET_Y - 1, dim((70, 60, 54), light))
+            if 9 <= hour < 20 and not self.wet:      # reading the paper
+                x = BENCH_X + 3
+                paint(frame, pixels, x + 1, STREET_Y - 8, (224, 172, 120))
+                for dx in range(3):
+                    paint(frame, pixels, x + dx, STREET_Y - 7, (230, 60, 60))
+                    paint(frame, pixels, x + dx, STREET_Y - 6, (230, 60, 60))
+                paint(frame, pixels, x, STREET_Y - 5, (26, 26, 38))
+                paint(frame, pixels, x + 2, STREET_Y - 5, (26, 26, 38))
+                paint(frame, pixels, x + 3, STREET_Y - 6, (240, 240, 232))   # the paper
+
+    def _busker(self, frame, pixels, hour, t, left, right):
+        """Somebody with a guitar and a hat on the pavement, notes drifting up. Out
+        during the day when it is dry, gone home when it is not."""
+        if self.wet or not 10 <= hour < 21 or not left - 10 < BUSKER_X < right + 10:
+            return
+        x, top = BUSKER_X, STREET_Y - 5
+        paint(frame, pixels, x + 1, top, (224, 172, 120))
+        for row in (top + 1, top + 2):
+            for dx in range(3):
+                paint(frame, pixels, x + dx, row, (60, 140, 240))
+        for dx in (0, 2):
+            for row in (top + 3, top + 4):
+                paint(frame, pixels, x + dx, row, (26, 26, 38))
+        for dx in range(3):
+            shade(frame, pixels, x + dx, STREET_Y)
+        for gx, gy in ((-2, 2), (-1, 2), (-2, 3), (-1, 3)):          # the guitar's body
+            paint(frame, pixels, x + gx, top + gy, (176, 112, 50))
+        for gx, gy in ((3, 1), (4, 0)):                              # and its neck
+            paint(frame, pixels, x + gx, top + gy, (120, 76, 36))
+        for dx in range(-7, -4):                                     # the hat, with a coin
+            paint(frame, pixels, x + dx, STREET_Y, (150, 40, 40))
+        if math.floor(t * 1.5) % 3 == 0:
+            paint(frame, pixels, x - 6, STREET_Y - 1, (255, 214, 60))
+        for n, colour in enumerate(((255, 190, 40), (90, 220, 120), (90, 170, 255))):
+            phase = (t * .45 + n / 3) % 1
+            nx, ny = x + 5 + round(math.sin(phase * 6 + n * 2) * 3), top - 1 - round(phase * 12)
+            fade = 1 - phase * .75
+            plot(frame, pixels, nx, ny, dim(colour, fade))
+            plot(frame, pixels, nx + 1, ny - 1, dim(colour, fade * .8))
+            plot(frame, pixels, nx + 1, ny - 2, dim(colour, fade * .8))
 
     def _wash(self, level):
         """The row the water reaches in each column: the edge of the wash.
@@ -813,6 +963,15 @@ class Town(Module):
                 pixels[x, row - 2] = foam
         if moon is not None:
             self._moonlight(pixels, moon, wash, t, left, right)
+        if light >= .5 and not self.wet and 8 <= self._hour < 17.5:
+            for x, towel, suit in TOWELS:
+                if left - 8 < x < right + 8:
+                    for dx in range(5):
+                        paint(frame, pixels, x + dx, 31, dim(towel, light))
+                    paint(frame, pixels, x, 30, dim((224, 172, 120), light))
+                    for dx in range(1, 4):
+                        paint(frame, pixels, x + dx, 30, dim(suit, light))
+                    paint(frame, pixels, x + 4, 30, dim((224, 172, 120), light))
         self._boat(frame, pixels, level, night, t)
         self._pier(frame, draw, pixels, night, left, right, light)
         self._surfer(frame, pixels, wash, night)
@@ -916,6 +1075,26 @@ class Town(Module):
                 paint(frame, pixels, UMBRELLA_X + dx, 31, dim((60, 170, 210), light))
         if left - 14 < TOWER_X < right + 14:
             self._lifeguard(frame, draw, pixels, night, t)
+        if not night and not self.wet and 9 <= self._hour < 18 and left - 16 < KITE_X < right + 16:
+            self._kite(frame, draw, pixels, t, light)
+
+    @staticmethod
+    def _kite(frame, draw, pixels, t, light):
+        """A kid on the sand and a kite riding the sea breeze above the tower."""
+        kx, ky = round(KITE_X + math.sin(t * .5) * 6), round(7 + math.cos(t * .37) * 2)
+        skin, shirt = dim((224, 172, 120), light), dim((80, 200, 120), light)
+        paint(frame, pixels, KID_X + 1, 27, skin)
+        for dx in range(3):
+            paint(frame, pixels, KID_X + dx, 28, shirt)
+        for dx in (0, 2):
+            for row in (29, 30):
+                paint(frame, pixels, KID_X + dx, row, dim((26, 26, 38), light))
+        draw.line((KID_X + 3, 28, kx, ky + 2), fill=dim((220, 220, 210), .7))
+        draw.polygon(((kx, ky - 2), (kx + 2, ky), (kx, ky + 2), (kx - 2, ky)), fill=(230, 50, 44))
+        draw.point((kx, ky), fill=(255, 214, 60))
+        for n in range(1, 6):                     # the tail, flicking in the wind
+            tail = (kx + round(math.sin(t * 3 + n) * 1.5), ky + 2 + n)
+            paint(frame, pixels, *tail, (60, 140, 240) if n % 2 else (255, 214, 60))
 
     @staticmethod
     def _lifeguard(frame, draw, pixels, night, t):
@@ -1000,6 +1179,19 @@ class Town(Module):
         draw.point((cx, cy), fill=hands)
 
     @staticmethod
+    def _portals(draw, night, left, right):
+        """The dark mouths the road goes under the town through, drawn over the cars
+        so they come out of them and go back into them."""
+        stone = (44, 44, 52) if night else (86, 84, 90)
+        for x0, x1 in (PORTAL_WEST, PORTAL_EAST):
+            if x1 < left - 2 or x0 > right + 2:
+                continue
+            draw.rectangle((x0, STREET_Y + 1, x1, 31), fill=(6, 6, 10))
+            draw.rectangle((x0, STREET_Y + 1, x1, STREET_Y + 1), fill=stone)      # the lintel
+            draw.rectangle((x0 - 1, STREET_Y + 1, x0 - 1, 31), fill=stone)         # and the jambs
+            draw.rectangle((x1 + 1, STREET_Y + 1, x1 + 1, 31), fill=stone)
+
+    @staticmethod
     def _tunnel(draw, night, left, right):
         """The mouth the line disappears into, drawn over the train so a departing
         train goes into it instead of sliding over the high street."""
@@ -1008,6 +1200,10 @@ class Town(Module):
         wall = (34, 34, 40) if night else (62, 60, 66)
         draw.rectangle((TOWN_END - 8, 17, TUNNEL_X + 7, 31), fill=wall)
         draw.rectangle((TOWN_END - 8, 17, TUNNEL_X + 7, 17), fill=(52, 52, 60) if night else (96, 94, 100))
+        # A footpath door for people catching a train; the tunnel is only for the rails.
+        draw.rectangle((PEOPLE_EAST + 1, 19, PEOPLE_EAST + 5, STREET_Y), fill=(20, 18, 26))
+        draw.rectangle((PEOPLE_EAST + 2, 20, PEOPLE_EAST + 4, STREET_Y), fill=(200, 160, 70) if night else (120, 100, 70))
+        draw.point((PEOPLE_EAST + 3, 17), fill=(255, 190, 40))
         draw.rectangle((TUNNEL_X, 22, TUNNEL_X + 7, 31), fill=(8, 8, 12))
         draw.arc((TUNNEL_X - 1, 18, TUNNEL_X + 8, 27), 180, 360, fill=(90, 86, 92))
 
@@ -1019,7 +1215,7 @@ class Town(Module):
         if not where or right < PLATFORM_X or left > PLATFORM_X + 80:
             return
         if self.train is not None and self.train["state"] == "stopped":
-            when = "NOW"
+            when, where = "NOW", self.train.get("to") or where
         width = max(tiny_width(where), tiny_width(when), 30) + 6
         x = PLATFORM_X + 14
         if x < left or x + width > right:      # never half a board at the panel edge
@@ -1105,7 +1301,7 @@ class Town(Module):
             plot(frame, pixels, round(x), round(y), dim((235, 238, 245), .85 - phase * .55))
 
     @staticmethod
-    def _person(frame, pixels, person, t, ground=STREET_Y):
+    def _person(frame, pixels, person, t, ground=STREET_Y, wet=False):
         x = round(person["x"])
         step = person["slot"] is None and person["pause"] <= 0 and math.floor(t * 6 + person["speed"]) % 2
         top = ground - 5
@@ -1126,6 +1322,16 @@ class Town(Module):
             hand = x + (3 if person["dir"] > 0 else -1)
             plot(frame, pixels, hand, top + 2, (255, 190, 40))
             plot(frame, pixels, hand, top + 1, (220, 60, 50))
+        if person["bag"] > 0:     # a shopping bag from the shop they just left
+            hand = x + (3 if person["dir"] > 0 else -1)
+            for row in (top + 2, top + 3):
+                paint(frame, pixels, hand, row, (196, 150, 96))
+        if wet and person["slot"] is None:   # an umbrella, in whatever colour it came in
+            canopy = UMBRELLAS[int(person["speed"] * 10) % len(UMBRELLAS)]
+            for dx in range(3):
+                paint(frame, pixels, x + dx, top - 2, canopy)
+            for dx in range(-1, 4):
+                paint(frame, pixels, x + dx, top - 1, canopy)
         if person["dog"]:
             dx = x - 4 * person["dir"]
             for px, py in ((0, 1), (1, 1), (2, 1), (3, 1), (0, 2), (3, 2), (3 if person["dir"] > 0 else 0, 0)):
@@ -1143,13 +1349,17 @@ class Town(Module):
         plot(frame, pixels, x + nose, y, (150, 220, 120) if math.floor(t * 2) % 2 else (60, 58, 66))
 
     @staticmethod
-    def _car(frame, pixels, car, night):
+    def _car(frame, pixels, car, night, t=0.0):
         y = STREET_Y + 1 if car["lane"] == 0 else STREET_Y + 3
         x = round(car["x"])
         body = VAN if car.get("van") else CAR
         stamp(frame, sprite(body, {"c": car["color"], "g": (110, 170, 220), "k": (12, 12, 16)},
                             flip=car["dir"] < 0), x, y)
         length = len(body[0]) - 1
+        if car.get("police"):      # the roof bar, flashing red and blue
+            flash = math.floor(t * 6) % 2
+            paint(frame, pixels, x + 3, y - 1, (255, 40, 40) if flash else (40, 90, 255))
+            paint(frame, pixels, x + 5, y - 1, (40, 90, 255) if flash else (255, 40, 40))
         front, back = (x + length, x) if car["dir"] > 0 else (x, x + length)
         plot(frame, pixels, back, y + 2, (255, 40, 40))
         if night:

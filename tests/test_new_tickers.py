@@ -268,8 +268,9 @@ class PixelTownDistrictsTests(unittest.TestCase):
         for _ in range(3000):
             town._simulate(1 / 30, 13.0, "sun", None)
             for car in town.cars:
-                self.assertGreater(car["x"], TOWN.BEACH_END - 20)
-                self.assertLess(car["x"], TOWN.TOWN_END + 20)
+                # Only ever between the two portals the road goes under the town through.
+                self.assertGreater(car["x"], TOWN.ROAD_L - 2)
+                self.assertLess(car["x"], TOWN.ROAD_R + 3)
 
     def test_the_camera_can_reach_every_district(self):
         town = TOWN.Town()
@@ -314,3 +315,89 @@ class PixelTownPolishTests(unittest.TestCase):
         clear, overcast = self.frame(1, 0), self.frame(1, 0, "cloud")
         water = lambda frame: sum(sum(frame.getpixel((x, y))) for x in range(20, 100) for y in range(19, 24))
         self.assertGreater(water(clear), water(overcast))
+
+
+class PixelTownLifeTests(unittest.TestCase):
+    def town(self, seed=5):
+        real = random.Random
+        with unittest.mock.patch.object(TOWN.random, "Random", lambda: real(seed)):
+            return TOWN.Town()
+
+    def test_only_a_traveller_goes_on_through_the_tunnel_wall(self):
+        town = self.town()
+        for _ in range(30 * 240):
+            town._simulate(1 / 30, 13.0, "sun", None)
+            for person in town.people:
+                if TOWN.PEOPLE_EAST < person["x"] < TOWN.PLATFORM_X and person["dir"] > 0:
+                    self.assertTrue(person["traveller"], f"walked into the tunnel wall at {person['x']:.0f}")
+
+    def test_the_towns_own_trains_keep_the_towns_own_timetable(self):
+        town = self.town()
+        town.scheduled, town.train, town.served = True, None, None
+        hour, left_at, arrived = 12.0, [], []
+        for step in range(30 * 3600):
+            hour += 1 / 30 / 3600
+            town._simulate(1 / 30, hour, "sun", None)
+            train = town.train
+            if train and train["state"] == "stopped" and train["due"] not in arrived:
+                arrived.append(train["due"])
+                self.assertLessEqual(hour * 60, train["due"], "the train was late to a departure that had passed")
+            if train and train["state"] == "leaving" and train["due"] not in left_at:
+                left_at.append(train["due"])
+                # It leaves on the dot, never early and never much after.
+                self.assertGreaterEqual(hour * 60, train["due"] - 1 / 60)
+                self.assertLess(hour * 60, train["due"] + 15 / 60)
+        self.assertGreaterEqual(len(left_at), 3, "the timetable ran no trains")
+        self.assertEqual(TOWN.Town._next_due(23.2), 23 * 60 + 30)      # thinner late at night
+        self.assertEqual(TOWN.Town._next_due(12.1), 12 * 60 + 15)
+
+    def test_the_board_shows_the_train_that_is_standing_there(self):
+        class Ctx:
+            snapshots = {}
+        town = self.town()
+        now = datetime(2026, 9, 22, 12, 14, 50)
+        where, when = town._departure(Ctx(), now)
+        self.assertTrue(town.scheduled)
+        self.assertEqual(when, "12:15")
+        town.train = {"state": "stopped", "to": where, "x": 300.0, "due": 12 * 60 + 15}
+        town.board = (where, when)
+        # The board of a train that has come in says NOW, and where that one is going.
+        self.assertEqual(town.train["to"], where)
+
+    def test_someone_who_goes_into_a_shop_comes_out_with_a_bag(self):
+        town = self.town()
+        town.people, town.rng.random = [], lambda: 0.0
+        shop = TOWN.SHOPS[3]
+        town._spawn_person(float(shop[0] + shop[1] - 6))
+        person = town.people[0]
+        person.update(dir=1, hungry=False, traveller=False, speed=8.0, dog=False)
+        went_in = False
+        for _ in range(30 * 20):
+            town._simulate(1 / 30, 12.0, "sun", None)
+            went_in = went_in or person["inside"] > 0
+            if went_in and person["bag"] > 0:
+                break
+        self.assertTrue(went_in, "nobody went into an open shop")
+        self.assertGreater(person["bag"], 0)
+
+    def test_it_rains_umbrellas(self):
+        town, frame = self.town(), TOWN.new_frame() if hasattr(TOWN, "new_frame") else None
+        from PIL import Image
+        frame = Image.new("RGB", (40, 32))
+        person = {"x": 10.0, "dir": 1, "speed": 8.0, "shirt": (230, 60, 60), "skin": (255, 214, 170), "pause": 0.0,
+                  "slot": None, "carry": 0.0, "bag": 0.0, "dog": False}
+        TOWN.Town._person(frame, frame.load(), person, 0.0, TOWN.STREET_Y, True)
+        self.assertIn(frame.getpixel((11, TOWN.STREET_Y - 7)), TOWN.UMBRELLAS)
+        dry = Image.new("RGB", (40, 32))
+        TOWN.Town._person(dry, dry.load(), person, 0.0, TOWN.STREET_Y, False)
+        self.assertEqual(dry.getpixel((11, TOWN.STREET_Y - 7)), (0, 0, 0))
+
+    def test_a_patrol_car_flashes_red_and_blue(self):
+        from PIL import Image
+        seen = set()
+        for step in range(12):
+            frame = Image.new("RGB", (60, 40))
+            car = {"x": 10.0, "dir": 1, "lane": 0, "color": (238, 238, 244), "van": False, "police": True}
+            TOWN.Town._car(frame, frame.load(), car, False, step / 6)
+            seen.add(frame.getpixel((13, TOWN.STREET_Y)))
+        self.assertEqual(seen, {(255, 40, 40), (40, 90, 255)})

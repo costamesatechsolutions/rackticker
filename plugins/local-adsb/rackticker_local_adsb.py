@@ -108,6 +108,58 @@ class Airframes:
 
 airframes = Airframes()
 
+_AIRPORTS = None
+
+
+def airports():
+    """Airports with scheduled service, (code, latitude, longitude, city), read once."""
+    global _AIRPORTS
+    if _AIRPORTS is None:
+        try:
+            _AIRPORTS = json.loads(Path(__file__).with_name("airports.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _AIRPORTS = []
+    return _AIRPORTS
+
+
+def angle_between(a, b):
+    return abs((a - b + 180) % 360 - 180)
+
+
+def infer_leg(latitude, longitude, track, altitude, vertical_rate, speed):
+    """What an aircraft is doing near an airport, from where it is and how it moves.
+
+    Route databases key on the callsign and airlines reuse them, so the route on
+    file is often another day's. An aircraft low over the ground, pointing at an
+    airport and coming down, is landing there; one pointing away and climbing has
+    just left it. Both are true whatever the callsign says. Returns
+    ("arriving" | "departing" | "overflight" | "", airport code, its city)."""
+    if track is None or altitude is None or (speed is not None and speed < 90):
+        return "", "", ""
+    rate = vertical_rate or 0
+    best = None
+    for code, alat, alon, city in airports():
+        if abs(alat - latitude) > .65 or abs(alon - longitude) > .8:
+            continue
+        distance, bearing = distance_bearing(latitude, longitude, alat, alon)
+        if distance > 36:
+            continue
+        if (angle_between(track, bearing) <= 40 and altitude <= distance * 350 + 2600
+                and altitude < 12000 and rate <= 300 and distance >= .3):
+            phase, off = "arriving", angle_between(track, bearing)
+        elif (angle_between(track, (bearing + 180) % 360) <= 50 and altitude <= distance * 450 + 3600
+              and altitude < 16000 and rate >= 200):
+            phase, off = "departing", angle_between(track, (bearing + 180) % 360)
+        else:
+            continue
+        score = distance + off * .15
+        if best is None or score < best[0]:
+            best = (score, phase, code, city)
+    if best:
+        return best[1], best[2], best[3]
+    return ("overflight", "", "") if altitude >= 20000 else ("", "", "")
+
+
 # Free, key-free community aggregators with the readsb aircraft JSON format.
 NETWORK_FEEDS = (("adsb_lol", "https://api.adsb.lol/v2/point/{lat}/{lon}/{nm}"),
                  ("adsb_fi", "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{nm}"))
@@ -294,6 +346,10 @@ def select_aircraft(data, receiver, settings, now, collect=None):
     winner = candidates[0] if candidates else None
     nearby = [aircraft_row(row[2], row[1], tracks.get(row[1]), index == 0)
               for index, row in enumerate(candidates[:16])]
+    for row, (_, identity, flight, item_lat, item_lon) in zip(nearby, candidates):
+        phase, code, city = infer_leg(item_lat, item_lon, tracks.get(identity), flight.altitude_ft,
+                                      flight.vertical_rate, flight.speed_kts)
+        row.update(phase=phase, airport=code, airport_city=city)
     return timestamp, winner, {"tracked_aircraft": tracked, "positioned_aircraft": positioned,
                                "nearby": nearby, "radius_miles": settings["radius_miles"]}
 
@@ -307,22 +363,36 @@ def aircraft_row(flight, identity, track=None, nearest=False):
             "destination": flight.destination if flight.destination != "---" else ""}
 
 
-def plausible(payload, latitude, longitude):
-    """Drop a route the aircraft is not actually flying. Route databases keep a
-    callsign's old route for months (a Delta flight over Orange County listed as
-    Chicago to New York); a real flight lies near the line between its airports."""
+def _fits(route, latitude, longitude):
+    """Does this route pass near the aircraft? A real flight lies near the line
+    between its airports."""
     try:
-        route = payload["response"]["flightroute"]
         ends = [(number(route[key].get("latitude"), -90, 90), number(route[key].get("longitude"), -180, 180))
                 for key in ("origin", "destination")]
     except (KeyError, TypeError, ValueError, AttributeError):
-        return payload
+        return None                      # nothing to check it against
     length = distance_bearing(*ends[0], *ends[1])[0]
     detour = sum(distance_bearing(latitude, longitude, *end)[0] for end in ends)
-    if detour <= length * 1.25 + 60:
+    return detour <= length * 1.25 + 60
+
+
+def plausible(payload, latitude, longitude):
+    """Drop a route the aircraft is not actually flying. Route databases keep a
+    callsign's old route for months (a Delta flight over Orange County listed as
+    Chicago to New York). If the first source's route does not fit, another source's
+    might; if none does, there is no route rather than a wrong one."""
+    try:
+        response = payload["response"]
+    except (KeyError, TypeError):
         return payload
-    response = {key: value for key, value in payload["response"].items() if key != "flightroute"}
-    return {"response": response}
+    route = response.get("flightroute")
+    if isinstance(route, dict) and _fits(route, latitude, longitude) is not False:
+        return payload
+    rest = {key: value for key, value in response.items() if key not in ("flightroute", "alt_routes")}
+    for alternative in response.get("alt_routes") or ():
+        if _fits(alternative, latitude, longitude):
+            return {"response": {**rest, "flightroute": alternative}}
+    return {"response": rest} if isinstance(route, dict) or response.get("alt_routes") else payload
 
 
 def journey(payload, latitude, longitude, speed_kts):
@@ -457,6 +527,20 @@ class LocalADSB(Provider):
         kind, registration = str(row.get("t") or "").upper(), str(row.get("r") or "").upper()
         return {"icao_type": kind, "registration": registration} if kind or registration else {}
 
+    async def _vrs(self, callsign):
+        """A second opinion on the route, from the VRS standing-data set that adsb.lol
+        hosts. Some callsigns fly a chain (DAL-PHX-LAS), so every leg is a candidate;
+        the plausibility check picks the one the aircraft is on."""
+        payload = await self._json(f"https://vrs-standing-data.adsb.lol/routes/{quote(callsign[:2])}/{quote(callsign)}.json")
+        ports = payload.get("_airports") if isinstance(payload, dict) else None
+        if not isinstance(ports, list) or len(ports) < 2:
+            return {}
+        def end(port):
+            return {"iata_code": str(port.get("iata") or ""), "icao_code": str(port.get("icao") or ""),
+                    "latitude": port.get("lat"), "longitude": port.get("lon"),
+                    "municipality": str(port.get("location") or ""), "name": str(port.get("name") or "")}
+        return {"alt_routes": [{"origin": end(a), "destination": end(b)} for a, b in zip(ports, ports[1:])]}
+
     async def _lookup(self, key, settings):
         """Route and airframe for one aircraft, asked of every source at once."""
         identity, callsign = key
@@ -464,6 +548,7 @@ class LocalADSB(Provider):
         asks = [self._adsbdb(f"aircraft/{quote(identity)}"), self._adsb_lol(identity)]
         if airline_flight:  # private and military flights publish no route; the airframe is the story
             asks.append(self._adsbdb(f"callsign/{quote(callsign)}"))
+            asks.append(self._vrs(callsign))
         results = await asyncio.gather(*asks, return_exceptions=True)
         answered = [r for r in results if not isinstance(r, Exception)]
         facts = {}
@@ -472,6 +557,8 @@ class LocalADSB(Provider):
                 facts["aircraft"] = result["aircraft"]
             if isinstance(result.get("flightroute"), dict):
                 facts["flightroute"] = result["flightroute"]
+            if isinstance(result.get("alt_routes"), list):
+                facts["alt_routes"] = result["alt_routes"]
         spare = results[1] if not isinstance(results[1], Exception) else {}
         aircraft = facts.get("aircraft") or {}
         if spare and not str(aircraft.get("icao_type") or "").strip():

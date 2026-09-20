@@ -16,7 +16,7 @@ from app.modules.base import Module, missing, stale_marker
 from app.core.aircraft import mixed, type_name
 from app.core.airlines import airline, display_name
 from app.core.fonts import centered, draw_text, draw_tiny, text_width, tiny_width
-from app.core.fx import ease_in_out, ease_out, mix, sprite, stamp
+from app.core.fx import ease_out, mix
 from app.core.renderer import new_frame, AMBER, GREEN, WHITE, MUTED
 
 LIVE_SOURCES = ("local_adsb", "adsb_network")
@@ -24,9 +24,6 @@ INFO_X = 35
 INFO_WIDTH = 128 - INFO_X
 IDENTITY_SECONDS = 10.0     # the whole story on one card: logo, flight, route, aircraft, where
 FACT_SECONDS = 2.5          # the card's bottom line turns over through the facts
-BOARD_SECONDS = 5.0         # the list of nearby aircraft, when there are several
-FLYBY_SECONDS = 2.2         # an aircraft this close crosses the panel first
-OVERHEAD_MILES = 2.0
 SPOT_LIMIT = 4
 COMPASS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
 # The marker between the two airport codes. At seven pixels it was a cross with a
@@ -39,15 +36,6 @@ PLANE_ROWS = (".##..........",
               "........##...")
 PLANE = tuple((x, y) for y, row in enumerate(PLANE_ROWS) for x, mark in enumerate(row) if mark == "#")
 PLANE_WIDE = len(PLANE_ROWS[0])
-AIRLINER = sprite((
-    "..........WW........",
-    ".........WWW........",
-    "WWWWWWWWWWWWWWWWWW..",
-    "WBBWBBWBBWBBWBBWWWWW",
-    "WWWWWWWWWWWWWWWWWWW.",
-    "......RRRRR.........",
-    ".....RRRR...........",
-), {"W": (235, 238, 240), "B": (40, 110, 200), "R": (150, 156, 164)})
 LABEL = (200, 206, 206)
 
 
@@ -133,16 +121,10 @@ class FlightModule(Module):
         return 1 / context.config["display"]["fps"]
 
     def _plan(self, rows, limit):
-        """[(kind, payload, seconds)] for one pass through the sky."""
+        """[(kind, payload, seconds)] for one pass through the sky: one full card for
+        each aircraft near enough to matter, nearest first."""
         spots = [row for row in rows if row["distance"] <= limit][:SPOT_LIMIT] or rows[:1]
-        plan = []
-        if spots and spots[0]["distance"] <= OVERHEAD_MILES:
-            plan.append(("flyby", spots[0], FLYBY_SECONDS))
-        if len(rows) >= 2:
-            plan.append(("board", rows[:3], BOARD_SECONDS))
-        for row in spots:
-            plan.append(("identity", row, IDENTITY_SECONDS))
-        return plan
+        return [("identity", row, IDENTITY_SECONDS) for row in spots]
 
     def hold(self, context):
         # Finish the aircraft on screen rather than cutting its details off.
@@ -179,12 +161,7 @@ class FlightModule(Module):
             t -= seconds
         frame = new_frame()
         logos = snap.metadata.get("logos") or {}
-        if kind == "flyby":
-            self._flyby(frame, payload, t)
-        elif kind == "board":
-            self._board(frame, payload, t)
-        else:
-            self._identity(frame, payload, logos, t, settings["layout"] == "detail", arrive)
+        self._identity(frame, payload, logos, t, settings["layout"] == "detail", arrive)
         return stale_marker(frame, snap)
 
     # --- spotlight -----------------------------------------------------------
@@ -218,15 +195,26 @@ class FlightModule(Module):
         draw_text(card, _fit(title, budget, 1, lower), INFO_X, 0, WHITE, mixed=lower)
         origin, destination = row.get("origin"), row.get("destination")
         kind = row.get("type")
+        # Route databases key on the callsign, and airlines reuse them, so many flights
+        # have no route we can trust. Where the aircraft is and how it moves still says
+        # which airport it is landing at or has just left: the known end goes where it
+        # belongs and the other is left as a question.
+        inferred = ""
+        if not (origin and destination) and row.get("phase") in ("arriving", "departing") and row.get("airport"):
+            city = str(row.get("airport_city") or "").upper()
+            if row["phase"] == "departing":
+                origin, destination, inferred = row["airport"], "???", f"LEAVING {city}".strip()
+            else:
+                origin, destination, inferred = "???", row["airport"], f"LANDING AT {city}".strip()
         if origin and destination:
-            draw_text(card, origin, INFO_X, 9, WHITE, 2, True)
+            draw_text(card, origin, INFO_X, 9, MUTED if origin == "???" else WHITE, 2, True)
             x = INFO_X + text_width(origin, 2) + 3
             for dx, dy in PLANE:
                 card.putpixel((x + dx, 13 + dy), AMBER)
-            draw_text(card, destination, x + PLANE_WIDE + 3, 9, WHITE, 2, True)
+            draw_text(card, destination, x + PLANE_WIDE + 3, 9, MUTED if destination == "???" else WHITE, 2, True)
             # Everything at once underneath: the cities in full, and how long is left.
             cities = [city.upper() for city in row.get("cities") or []]
-            line = f"{cities[0]} {ARROW} {cities[1]}" if len(cities) == 2 else where(row)
+            line = f"{cities[0]} {ARROW} {cities[1]}" if len(cities) == 2 else (inferred or where(row))
             left = row.get("minutes_left")
             # The aircraft goes beside the cities; the time left sits by the flight number.
             plane = type_name(row["type"], long=False) if row.get("type") else ""
@@ -250,15 +238,49 @@ class FlightModule(Module):
             if clock and text_width(title, 1, lower) + 4 + tiny_width(clock) <= INFO_WIDTH:
                 draw_tiny(card, clock, 128 - tiny_width(clock), 1, AMBER)
                 clock = ""
-            draw_tiny(card, _fit_tiny(line, room), INFO_X, 26, WHITE if len(cities) == 2 else GREEN)
+            draw_tiny(card, _fit_tiny(line, room), INFO_X, 26, WHITE if len(cities) == 2 or inferred else GREEN)
         else:
             # No published route (private and military flights): the aircraft is the story.
             label = mixed(type_name(kind, long=False)) or "Aircraft"
+            if row.get("phase") == "overflight":
+                inferred = "OVERFLIGHT"
             size = 2 if text_width(label, 2, True) <= INFO_WIDTH else 1
             draw_text(card, _fit(label, INFO_WIDTH, size, True), INFO_X, 9 if size == 2 else 13, AMBER, size,
                       size == 2, mixed=True)
             draw_text(card, _fit(where(row), INFO_WIDTH), INFO_X, 25, GREEN)
+        # The bottom line turns over through everything else worth knowing, so height,
+        # speed, how far off and how long it has flown are all on the card in turn.
+        turn = int(t // FACT_SECONDS) % 3
+        if turn:
+            ImageDraw.Draw(card).rectangle((INFO_X, 24, 127, 31), fill=(0, 0, 0))
+            text, colour = self._more(row, turn)
+            draw_tiny(card, _fit_tiny(text, INFO_WIDTH), INFO_X, 26, colour)
         frame.paste(card.crop((0, 0, 128, 32 - rise)), (0, rise))
+
+    @staticmethod
+    def _more(row, turn):
+        """The bottom line's second and third readings."""
+        compact = lambda minutes: f"{int(minutes)}M" if minutes < 60 else f"{int(minutes) // 60}H{int(minutes) % 60:02d}M"
+        if turn == 1:
+            rate = row.get("vertical_rate")
+            arrow = "" if rate is None else "↑" if rate > 250 else "↓" if rate < -250 else ""
+            parts = [type_name(row["type"], long=False)] if row.get("type") else []
+            if row.get("altitude") is not None:
+                parts.append(f"{row['altitude']:,}FT{arrow}")
+            if row.get("speed"):
+                parts.append(f"{round(row['speed'])}KT")
+            text = "  ".join(parts)
+            return (text if text_width(text) <= INFO_WIDTH else "  ".join(parts[1:])) or where(row), GREEN
+        parts = [f"{row['distance']:.1f}MI {compass(row.get('bearing'))}"]
+        if row.get("minutes_flown") is not None:
+            parts.append(f"IN AIR {compact(row['minutes_flown'])}")
+        elif row.get("phase") in ("arriving", "departing", "overflight"):
+            parts.append(row["phase"].upper())
+        text = "  ".join(parts)
+        left = row.get("minutes_left")
+        if left is not None and text_width(text + f"  {compact(left)} TO GO") <= INFO_WIDTH:
+            text += f"  {compact(left)} TO GO"
+        return text, GREEN
 
     @staticmethod
     def facts(row):
@@ -303,53 +325,6 @@ class FlightModule(Module):
         """General aviation has no airline mark: a small plane silhouette instead."""
         for dx, dy in PLANE:
             ImageDraw.Draw(image).rectangle((9 + dx * 2, 11 + dy * 2, 10 + dx * 2, 12 + dy * 2), fill=MUTED)
-
-    # --- board ---------------------------------------------------------------
-
-    @staticmethod
-    def _board(frame, rows, t):
-        """Nearest aircraft as a departures board: flight, route, distance."""
-        for index, row in enumerate(rows):
-            y = 1 + index * 11
-            # Rows drop in one after another like flaps turning over.
-            delay = index * .12
-            if t < delay:
-                continue
-            rise = round((1 - ease_out(min(1, (t - delay) / .3))) * 6)
-            carrier = airline(row["callsign"])
-            chip = carrier[2] if carrier else (90, 96, 104)
-            ImageDraw.Draw(frame).rectangle((0, y + rise, 1, y + 6 + rise), fill=mix(chip, (255, 255, 255), .25))
-            _, short = flight_number(row["callsign"])
-            draw_text(frame, short[:7], 4, y + rise, WHITE)
-            if row.get("origin") and row.get("destination"):
-                route, color = f"{row['origin']}>{row['destination']}", AMBER
-            else:
-                route, color = type_name(row.get("type"), long=False)[:8], LABEL
-            draw_text(frame, route, 48, y + rise, color)
-            distance = f"{row['distance']:.0f}MI" if row["distance"] >= 1 else "HERE"
-            draw_text(frame, distance, 128 - text_width(distance), y + rise, GREEN)
-
-    # --- overhead ------------------------------------------------------------
-
-    @staticmethod
-    def _flyby(frame, row, t):
-        """The aircraft crosses the panel trailing a contrail, then OVERHEAD."""
-        progress = ease_in_out(min(1, t / (FLYBY_SECONDS - .4)))
-        x = -12 + progress * 140
-        draw = ImageDraw.Draw(frame)
-        for tail in range(0, int(x) + 1):
-            fade = max(0, 1 - (x - tail) / 70)
-            if fade > 0:
-                level = round(120 * fade)
-                draw.point((tail, 21), fill=(level, level, level))
-                if tail % 2:
-                    draw.point((tail, 20), fill=(level // 2, level // 2, level // 2))
-        stamp(frame, AIRLINER, x, 16)
-        if progress > .35:
-            visible = min(1, (progress - .35) / .25)
-            draw_text(frame, "OVERHEAD", 1, 1, mix((0, 0, 0), AMBER, visible))
-            _, short = flight_number(row["callsign"])
-            draw_text(frame, short, 127 - text_width(short), 1, mix((0, 0, 0), LABEL, visible))
 
     @staticmethod
     def _minimal(snap):

@@ -2,6 +2,16 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.3.0 - 2026-09-19
+
+- **Pixel Town**: people no longer walk through the taco truck — they pass behind
+  it — and hungry ones form a real queue at the window instead of standing inside
+  one another, wait their turn and leave with the taco in hand. The street they
+  walk down is new too: a pavement, shadows underfoot, lit shopfronts with their
+  own awnings, a cook in the serving window, steam off the griddle, vans in the
+  traffic, birds by day and a cat at 3 AM.
+- The control page's port is now stated plainly: 8080 on a computer, 8081 on a Pi.
+
 ## 1.2.0 - 2026-09-19
 
 - Reset goes as far back as you need, from Settings: settings and plugins, Wi-Fi

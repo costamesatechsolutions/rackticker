@@ -197,6 +197,15 @@ SIGN = SIGNS[0]
 POLES = tuple(range(BEACH_END + 12, TOWN_END - 4, 34))   # street lights, the town's own
 
 
+@lru_cache(maxsize=512)
+def water_gradient(row, shade_of_light):
+    """The sea's colours from the horizon down to the wash line at this row."""
+    light = shade_of_light / 32
+    deep, shallow = dim((12, 58, 136), light), dim((38, 150, 214), light)
+    span = max(1, row - HORIZON + 1)
+    return tuple(mix(deep, shallow, (y - HORIZON) / span) for y in range(HORIZON, row + 1))
+
+
 @lru_cache(maxsize=4)
 def skyline(bucket):
     hour = bucket / 12
@@ -947,16 +956,16 @@ class Town(Module):
         if left >= BEACH_END:
             return
         dry, wet = dim((214, 190, 138), light), dim((162, 136, 98), light)
-        deep, shallow = dim((12, 58, 136), light), dim((38, 150, 214), light)
+        shade_of_light = round(light * 32)          # the water's colours are cached by this
         foam = dim((232, 248, 254), max(.34, light))
         wash, speed = self._wash(level), self.sea.speed
         for x in range(max(0, left), min(BEACH_END, right)):
             edge = wash[x]
             row = max(HORIZON, min(31, int(round(edge))))
-            for y in range(HORIZON, row + 1):
-                # Darker out towards the horizon, lighter in the shallows: what
-                # makes a flat band of blue read as water going away from you.
-                pixels[x, y] = mix(deep, shallow, (y - HORIZON) / max(1, row - HORIZON + 1))
+            # Darker out towards the horizon, lighter in the shallows: what makes a
+            # flat band of blue read as water going away from you.
+            for y, colour in enumerate(water_gradient(row, shade_of_light), HORIZON):
+                pixels[x, y] = colour
             for y in range(row + 1, 32):
                 # Sand the last wave reached is still wet, and dries as it goes up.
                 pixels[x, y] = wet if y - edge < 2.2 else dry

@@ -47,9 +47,14 @@ BIRD = ("w.w", ".w.")
 # Shops at street level, so the pavement is somewhere people are going, not a strip
 # of grey. Each one: where it starts, how wide, and the hour it closes.
 SHOPS = ((6, 7, 21, (210, 70, 60)), (26, 6, 18, (70, 150, 210)),
-         (48, 7, 23, (240, 180, 60)), (68, 6, 20, (80, 180, 120)))
+         (48, 7, 23, (240, 180, 60)), (68, 6, 20, (80, 180, 120)),
+         (92, 7, 22, (200, 90, 180)), (114, 6, 19, (90, 190, 200)),
+         (178, 7, 23, (230, 120, 50)), (200, 6, 21, (120, 160, 230)),
+         (222, 7, 20, (240, 200, 90)))
 PLANE = ("...w...", "wwwwwww", "..www..")
-STREET_Y, TRUCK_X = 25, 92
+# The town is twice as wide as the panel, and the panel is a camera looking at it.
+WORLD, VIEW = 256, 128
+STREET_Y, TRUCK_X = 25, 150
 # Customers queue at the serving window, on the pavement beside the truck, one
 # behind the other. Three deep is all the space there is, and all it needs.
 WINDOW_X, QUEUE_GAP, QUEUE_DEPTH = TRUCK_X - 4, 4, 3
@@ -78,23 +83,24 @@ def _curve(keys, hour):
 @lru_cache(maxsize=4)
 def sky_image(bucket):
     top, bottom = _curve(SKY_KEYS, bucket / 60)
-    image = Image.new("RGB", (128, 32))
+    image = Image.new("RGB", (WORLD, 32))
     draw = ImageDraw.Draw(image)
     for y in range(32):
-        draw.line((0, y, 127, y), fill=mix(top, bottom, y / 31))
+        draw.line((0, y, WORLD - 1, y), fill=mix(top, bottom, y / 31))
     return image
 
 
 def city(seed=11):
     rng = random.Random(seed)
     buildings, x = [], 0
-    while x < 128:
+    while x < WORLD:
         # Fewer, broader buildings read as a skyline instead of visual noise.
         width, height = rng.randint(14, 24), rng.randint(8, 16)
         color = rng.choice(((34, 38, 52), (46, 40, 48), (30, 44, 54), (50, 46, 42), (38, 34, 46)))
         top = STREET_Y - height
         windows = tuple((wx, wy, rng.random(), rng.choice(((255, 206, 110), (255, 236, 170), (150, 200, 255))))
-                        for wy in range(top + 2, STREET_Y - 1, 3) for wx in range(x + 2, min(127, x + width - 1), 3))
+                        for wy in range(top + 2, STREET_Y - 1, 3)
+                        for wx in range(x + 2, min(WORLD - 1, x + width - 1), 3))
         buildings.append((x, width, top, color, windows))
         x += width + rng.randint(0, 2)
     return tuple(buildings)
@@ -102,8 +108,15 @@ def city(seed=11):
 
 BUILDINGS = city()
 # The tallest building near the middle carries the town's rooftop sign.
-SIGN = max((b for b in BUILDINGS if 30 <= b[0] <= 70), key=lambda b: STREET_Y - b[2],
-           default=BUILDINGS[len(BUILDINGS) // 2])
+def _tallest(low, high):
+    return max((b for b in BUILDINGS if low <= b[0] <= high), key=lambda b: STREET_Y - b[2],
+               default=BUILDINGS[len(BUILDINGS) // 2])
+
+
+# A rooftop sign in each half of town, so wherever the camera is looking there is
+# a whole one to read rather than half of one at the edge of the panel.
+SIGNS = (_tallest(30, 90), _tallest(150, 210))
+SIGN = SIGNS[0]
 
 
 @lru_cache(maxsize=4)
@@ -111,7 +124,7 @@ def skyline(bucket):
     hour = bucket / 12
     occupied = _curve(WINDOW_KEYS, hour) * .75
     daylight = 7.5 <= hour <= 17.5
-    layer = Image.new("RGBA", (128, 32))
+    layer = Image.new("RGBA", (WORLD, 32))
     draw = ImageDraw.Draw(layer)
     for x, width, top, color, windows in BUILDINGS:
         draw.rectangle((x, top, x + width - 1, STREET_Y - 1), fill=(*color, 255))
@@ -124,10 +137,48 @@ def skyline(bucket):
             else:
                 fill = dim(color, .7)
             layer.putpixel((wx, wy), (*fill, 255))
-    for pole in range(14, 128, 34):
+    for pole in range(14, WORLD, 34):
         draw.line((pole, STREET_Y - 7, pole, STREET_Y - 1), fill=(90, 90, 100, 255))
         draw.point((pole + 1, STREET_Y - 7), fill=(90, 90, 100, 255))
     return layer
+
+
+class Camera:
+    """The panel is a window onto a town twice its width.
+
+    It does not sweep back and forth on a timer, which reads as a machine. It
+    settles on somewhere worth watching, stays while there is something to see,
+    and glides on — and it gives way to anything that turns up, like a cat."""
+
+    EASE, ARRIVED = 1.8, 1.0      # how briskly it glides, and what counts as there
+    DWELL = (7.0, 13.0)           # how long it watches one place
+
+    def __init__(self, rng):
+        self.rng = rng
+        self.limit = float(WORLD - VIEW)
+        self.x = self.target = min(self.limit, max(0.0, TRUCK_X - VIEW / 2))
+        self.dwell = rng.uniform(*self.DWELL)
+        self.view = round(self.x)   # the town x drawn at the panel's left edge
+
+    def look_at(self, centre, urgent=False):
+        """Frame something at this point in town."""
+        wanted = min(self.limit, max(0.0, centre - VIEW / 2))
+        if urgent or abs(wanted - self.target) > 8:
+            self.target = wanted
+            if urgent:
+                self.dwell = max(self.dwell, 6.0)
+
+    def step(self, dt, interests):
+        self.dwell -= dt
+        if self.dwell <= 0 and abs(self.x - self.target) < self.ARRIVED:
+            choices = [spot for spot in interests if abs(spot - (self.x + VIEW / 2)) > VIEW / 3]
+            if choices:
+                self.look_at(self.rng.choice(choices))
+            self.dwell = self.rng.uniform(*self.DWELL)
+        # Eased, frame-rate independent: fast at first, gentle as it arrives.
+        self.x += (self.target - self.x) * min(1.0, self.EASE * dt)
+        self.view = round(max(0.0, min(self.limit, self.x)))
+        return self.view
 
 
 class Town(Module):
@@ -135,15 +186,17 @@ class Town(Module):
 
     def __init__(self):
         self.rng = random.Random()
+        self.camera = Camera(self.rng)
         self.people, self.cars, self.clouds = [], [], []
         self.plane, self.plane_wait = None, 3.0
         self.people_wait = self.car_wait = 0.0
         self.last_t, self.scene = None, None
-        for _ in range(4):
-            self._spawn_person(self.rng.uniform(0, 128))
+        for _ in range(7):
+            self._spawn_person(self.rng.uniform(0, WORLD))
         for lane in (0, 1):
             self._spawn_car(lane, self.rng.uniform(0, 120))
-        self.clouds = [[self.rng.uniform(0, 128), self.rng.uniform(2, 9), self.rng.uniform(.8, 2.2)] for _ in range(4)]
+        self.clouds = [[self.rng.uniform(0, WORLD), self.rng.uniform(2, 9), self.rng.uniform(.8, 2.2)]
+                       for _ in range(6)]
         self.birds = []
         self.cat = None
 
@@ -152,7 +205,7 @@ class Town(Module):
 
     def _spawn_person(self, x=None):
         direction = self.rng.choice((-1, 1))
-        self.people.append({"x": x if x is not None else (-4.0 if direction > 0 else 131.0), "dir": direction,
+        self.people.append({"x": x if x is not None else (-4.0 if direction > 0 else WORLD + 3.0), "dir": direction,
                             "speed": self.rng.uniform(5, 10), "shirt": self.rng.choice(SHIRTS),
                             "skin": self.rng.choice(SKINS), "hungry": self.rng.random() < .45,
                             "pause": 0.0, "fed": False, "dog": self.rng.random() < .08,
@@ -163,7 +216,7 @@ class Town(Module):
         # One vehicle in five is a van: something bigger to look at, and it holds
         # the traffic up behind it the way a van does.
         van = self.rng.random() < .2
-        self.cars.append({"x": x if x is not None else (-14.0 if direction > 0 else 140.0), "dir": direction,
+        self.cars.append({"x": x if x is not None else (-14.0 if direction > 0 else WORLD + 14.0), "dir": direction,
                           "lane": lane, "speed": self.rng.uniform(12, 20) if van else self.rng.uniform(18, 34),
                           "color": self.rng.choice(VAN_COLORS if van else CAR_COLORS), "van": van})
 
@@ -213,7 +266,7 @@ class Town(Module):
         wet = weather in ("rain", "storm", "snow")
         truck_open = 11 <= hour < 14 or 17 <= hour < 22
         self.people_wait -= dt
-        if self.people_wait <= 0 and len(self.people) < 6:
+        if self.people_wait <= 0 and len(self.people) < 12:
             self._spawn_person()
             self.people_wait = rng.uniform(1.2, 5) / max(.12, busy)
         for person in self.people:
@@ -225,11 +278,11 @@ class Town(Module):
             if truck_open and person["hungry"] and not person["fed"] and self._joins_queue(person):
                 continue
             person["x"] += person["dir"] * person["speed"] * dt * (1.5 if wet else 1)
-        self.people = [p for p in self.people if -8 < p["x"] < 136]
+        self.people = [p for p in self.people if -8 < p["x"] < WORLD + 8]
         self.car_wait -= dt
         if self.car_wait <= 0:
             lane = rng.randrange(2)
-            if not any(c["lane"] == lane and (c["x"] < 14 if lane == 0 else c["x"] > 114) for c in self.cars):
+            if not any(c["lane"] == lane and (c["x"] < 14 if lane == 0 else c["x"] > WORLD - 14) for c in self.cars):
                 self._spawn_car(lane)
             self.car_wait = rng.uniform(.8, 4) / max(.15, busy)
         for car in self.cars:
@@ -237,38 +290,38 @@ class Town(Module):
                      and 0 < (c["x"] - car["x"]) * car["dir"] < 14]
             speed = min(car["speed"], min((c["speed"] for c in ahead), default=car["speed"]))
             car["x"] += car["dir"] * speed * dt
-        self.cars = [c for c in self.cars if -14 < c["x"] < 142]
+        self.cars = [c for c in self.cars if -16 < c["x"] < WORLD + 16]
         for cloud in self.clouds:
-            cloud[0] = (cloud[0] + cloud[2] * dt) % 150
+            cloud[0] = (cloud[0] + cloud[2] * dt) % (WORLD + 22)
         daylight = 6.5 < hour < 19.5
         if daylight and not self.birds and rng.random() < dt * .18:
             direction = rng.choice((-1, 1))
             flock = rng.randrange(2, 4)
-            self.birds = [{"x": (-6.0 if direction > 0 else 134.0) - n * rng.uniform(4, 7) * direction,
+            self.birds = [{"x": (-6.0 if direction > 0 else WORLD + 6.0) - n * rng.uniform(4, 7) * direction,
                            "y": rng.uniform(3, 9), "dir": direction, "speed": rng.uniform(9, 14)}
                           for n in range(flock)]
         for bird in self.birds:
             bird["x"] += bird["dir"] * bird["speed"] * dt
             bird["y"] += math.sin(bird["x"] * .12) * dt * 1.2
-        self.birds = [b for b in self.birds if -10 < b["x"] < 138] if daylight else []
+        self.birds = [b for b in self.birds if -10 < b["x"] < WORLD + 10] if daylight else []
         # Somebody has to be out at 3 AM, and in a town this size it is a cat.
         if self.cat:
             self.cat["x"] += self.cat["dir"] * 11 * dt
-            if not -6 < self.cat["x"] < 134:
+            if not -6 < self.cat["x"] < WORLD + 6:
                 self.cat = None
         elif not daylight and rng.random() < dt * .05:
             direction = rng.choice((-1, 1))
-            self.cat = {"x": -5.0 if direction > 0 else 133.0, "dir": direction}
+            self.cat = {"x": -5.0 if direction > 0 else WORLD + 5.0, "dir": direction}
         if self.plane:
             self.plane["x"] += self.plane["dir"] * 16 * dt
-            if not -60 < self.plane["x"] < 190:
+            if not -60 < self.plane["x"] < WORLD + 60:
                 self.plane, self.plane_wait = None, rng.uniform(8, 16)
         else:
             self.plane_wait -= dt
             if self.plane_wait <= 0:
                 direction = rng.choice((-1, 1))
                 label = flight.callsign if flight else ""
-                self.plane = {"x": -10.0 if direction > 0 else 138.0, "dir": direction, "label": label}
+                self.plane = {"x": -10.0 if direction > 0 else WORLD + 10.0, "dir": direction, "label": label}
 
     def render(self, context):
         t = context.animation_time
@@ -285,6 +338,7 @@ class Town(Module):
         flight_snap = context.snapshots.get("flight")
         flight = flight_snap.data if flight_snap and not flight_snap.stale else None
         self._simulate(dt, hour, kind, flight)
+        view = self.camera.step(dt, self._interests(hour))
         frame = sky_image(math.floor(hour * 60)).copy()
         draw = ImageDraw.Draw(frame)
         pixels = frame.load()
@@ -293,11 +347,27 @@ class Town(Module):
         self._birds(frame, pixels, self.birds, t)
         self._plane(frame, pixels, t)
         frame.paste(skyline(math.floor(hour * 12)), (0, 0), skyline(math.floor(hour * 12)))
-        self._sign(frame, draw, now, weather, t, context.config["plugins"][self.name]["town_name"])
+        self._sign(frame, draw, now, weather, t, context.config["plugins"][self.name]["town_name"], view)
         night = hour < 6.5 or hour > 19
         self._street(frame, draw, pixels, night, hour, t)
         self._weather(frame, draw, pixels, kind, t)
-        return frame
+        # The panel is the camera's view of the town, not the whole town.
+        return frame.crop((view, 0, view + VIEW, 32))
+
+    def _interests(self, hour):
+        """Places worth pointing the camera at, right now."""
+        spots = [TRUCK_X + 8]
+        queue = [p["x"] for p in self.people if p["slot"] is not None]
+        if queue:                       # a queue at the window is the best thing in town
+            spots.append(TRUCK_X)
+        spots.extend(shop[0] + shop[1] // 2 for shop in SHOPS if 8 <= hour < shop[2])
+        spots.append(SIGN[0] + SIGN[1] // 2)
+        if self.cat:
+            spots.append(self.cat["x"])
+        walkers = [p["x"] for p in self.people if p["slot"] is None]
+        if len(walkers) > 3:            # wherever the street is busiest
+            spots.append(sum(walkers) / len(walkers))
+        return spots
 
     @staticmethod
     def _celestial(frame, draw, pixels, hour, t, kind):
@@ -311,8 +381,8 @@ class Town(Module):
             p = ((hour - 18) % 24) / 12
             x, y = round(4 + p * 120), round(17 - math.sin(p * math.pi) * 13)
             if not overcast:
-                for n in range(12):
-                    sx, sy = (n * 53) % 128, (n * 29) % 14
+                for n in range(24):
+                    sx, sy = (n * 53) % WORLD, (n * 29) % 14
                     # Steady stars: on/off twinkling reads as flicker on LEDs.
                     plot(frame, pixels, sx, sy, (150, 160, 200) if n % 3 else (104, 112, 146))
             draw.ellipse((x - 2, y - 2, x + 2, y + 2), fill=(236, 232, 200))
@@ -344,8 +414,7 @@ class Town(Module):
             draw_tiny(frame, label, bx + 1, y + 2, (200, 40, 40))
 
     @staticmethod
-    def _sign(frame, draw, now, weather, t, town_name):
-        x, width, top, _, _ = SIGN
+    def _sign(frame, draw, now, weather, t, town_name, view=0):
         items = [f"{now.hour % 12 or 12}:{now.minute:02d}"]
         if "temperature" in weather:
             items.append(f"{weather['temperature']}°")
@@ -353,25 +422,30 @@ class Town(Module):
         text = items[math.floor(t / 6) % len(items)]
         # One fixed sign size for every message, so the sign never jumps.
         sign_width = max(tiny_width(item) for item in (*items, "12:59", "100°")) + 6
-        sx = max(0, min(127 - sign_width, x + width // 2 - sign_width // 2))
-        draw.rectangle((sx, top - 9, sx + sign_width - 1, top - 2), fill=(16, 14, 18), outline=(70, 60, 40))
-        # Its legs stand on its own roof, even when the sign is wider than the building.
-        for leg in (max(sx + 2, x + 1), min(sx + sign_width - 3, x + width - 2)):
-            draw.line((leg, top - 1, leg + 1, top - 1), fill=(70, 60, 40))
-        draw_tiny(frame, text, sx + sign_width // 2 - tiny_width(text) // 2, top - 8, (255, 176, 20))
+        for x, width, top, _, _ in SIGNS:
+            sx = max(0, min(WORLD - 1 - sign_width, x + width // 2 - sign_width // 2))
+            # Half a sign at the edge of the panel reads as a fault, so a sign the
+            # camera cannot show whole is not drawn at all.
+            if sx < view or sx + sign_width > view + VIEW:
+                continue
+            draw.rectangle((sx, top - 9, sx + sign_width - 1, top - 2), fill=(16, 14, 18), outline=(70, 60, 40))
+            # Its legs stand on its own roof, even when the sign is wider than the building.
+            for leg in (max(sx + 2, x + 1), min(sx + sign_width - 3, x + width - 2)):
+                draw.line((leg, top - 1, leg + 1, top - 1), fill=(70, 60, 40))
+            draw_tiny(frame, text, sx + sign_width // 2 - tiny_width(text) // 2, top - 8, (255, 176, 20))
 
     def _street(self, frame, draw, pixels, night, hour, t):
         # A pavement for people to walk on. Without it they were drawn against
         # whatever window happened to be behind them and read as floating specks.
-        draw.rectangle((0, STREET_Y - 6, 127, STREET_Y - 1), fill=(38, 38, 46) if night else (52, 52, 60))
-        draw.rectangle((0, STREET_Y - 6, 127, STREET_Y - 6), fill=(58, 58, 68) if night else (74, 74, 84))
+        draw.rectangle((0, STREET_Y - 6, WORLD - 1, STREET_Y - 1), fill=(38, 38, 46) if night else (52, 52, 60))
+        draw.rectangle((0, STREET_Y - 6, WORLD - 1, STREET_Y - 6), fill=(58, 58, 68) if night else (74, 74, 84))
         self._shops(draw, hour)
-        draw.rectangle((0, STREET_Y, 127, STREET_Y), fill=(70, 70, 76))
-        draw.rectangle((0, STREET_Y + 1, 127, 31), fill=(24, 24, 28))
-        for x in range(0, 128, 8):
+        draw.rectangle((0, STREET_Y, WORLD - 1, STREET_Y), fill=(70, 70, 76))
+        draw.rectangle((0, STREET_Y + 1, WORLD - 1, 31), fill=(24, 24, 28))
+        for x in range(0, WORLD, 8):
             draw.line((x, 29, x + 3, 29), fill=(90, 80, 40))
         if night:
-            for pole in range(14, 128, 34):
+            for pole in range(14, WORLD, 34):
                 plot(frame, pixels, pole + 1, STREET_Y - 7, (255, 220, 140))
                 for spread in range(-2, 3):
                     plot(frame, pixels, pole + 1 + spread, STREET_Y, (110, 96, 64))
@@ -501,22 +575,22 @@ class Town(Module):
     @staticmethod
     def _weather(frame, draw, pixels, kind, t):
         if kind in ("rain", "storm"):
-            for n in range(24 if kind == "storm" else 16):
-                x = (n * 37 + math.floor(t * 12)) % 128
+            for n in range(48 if kind == "storm" else 32):
+                x = (n * 37 + math.floor(t * 12)) % WORLD
                 y = (n * 13 + t * 40 * (1 + n % 3 * .2)) % 34 - 2
                 plot(frame, pixels, x, y, (90, 140, 230))
                 plot(frame, pixels, x, y + 1, (60, 100, 180))
             if kind == "storm" and (t % 6.1) < .1:
                 draw.line((70, 0, 64, 8, 69, 8, 62, 18), fill=(255, 250, 200))
         elif kind == "snow":
-            for n in range(34):
-                x = (n * 41 + round(math.sin(t + n) * 2)) % 128
+            for n in range(68):
+                x = (n * 41 + round(math.sin(t + n) * 2)) % WORLD
                 y = (n * 17 + t * 8) % 32
                 plot(frame, pixels, x, y, (235, 240, 250))
         elif kind == "fog":
             for row, y in enumerate((12, 17, 22)):
                 shift = math.floor(t * (3 + row)) % 10
-                for x in range(128):
+                for x in range(WORLD):
                     if (x + shift) % 10 < 7:
                         plot(frame, pixels, x, y, (70, 76, 84))
 

@@ -206,7 +206,10 @@ class NewTickerTests(unittest.TestCase):
         person.update(dir=1, hungry=False, fed=True, speed=8.0, dog=False, slot=None, carry=0.0)
         frame = self.town_frame(town, hour=12)
         pixels = frame.load()
-        body = {pixels[TOWN.TRUCK_X + 6 + dx, TOWN.STREET_Y - 4] for dx in range(3)}
+        # The panel is a window on a wider town: read the truck where it is on screen.
+        left = TOWN.TRUCK_X + 6 - town.camera.view
+        self.assertTrue(0 <= left < 125, "the camera is not looking at the truck")
+        body = {pixels[left + dx, TOWN.STREET_Y - 4] for dx in range(3)}
         self.assertNotIn(person["shirt"], body, "the person is drawn over the truck")
 
     def test_the_queue_forms_one_behind_another(self):

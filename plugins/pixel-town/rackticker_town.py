@@ -75,6 +75,8 @@ ROAD_L, ROAD_R = BEACH_END - 1, TOWN_END - 18        # where a car is fully insi
 PORTAL_WEST, PORTAL_EAST = (BEACH_END - 1, BEACH_END + 13), (TOWN_END - 18, TOWN_END - 9)
 PEOPLE_EAST = TOWN_END - 12                          # the town's walkers turn back here
 TREES, BENCH_X = (119, 180, 206, 260), 240   # street trees, and a bench with somebody on it
+TREE_CROWN = ((-2, 0, 0), (-1, 0, 1), (0, 0, 1), (1, 0, 0), (2, 0, 0), (-2, -1, 0), (-1, -1, 1), (0, -1, 1),
+              (1, -1, 0), (2, -1, 0), (-1, -2, 1), (0, -2, 1), (1, -2, 0), (0, -3, 0))    # dx, dy, lit side
 BUSKER_X = 222                                       # somebody with a guitar, between two shops
 KITE_X, KID_X = 78, 69                               # a kid flying a kite on the beach
 TOWELS = ((42, (60, 170, 210), (216, 52, 44)), (62, (90, 200, 120), (250, 200, 60)))  # x, towel, swimsuit
@@ -876,22 +878,20 @@ class Town(Module):
     def _planters(self, frame, draw, pixels, hour, left, right):
         """Trees in the gaps between the shops, and a bench with somebody on it."""
         light = max(.3, _curve(LIGHT_KEYS, hour))
+        trunk, leaf, leaf_lit = dim((120, 84, 50), light), dim((44, 146, 72), light), dim((74, 186, 96), light)
         for x in TREES:
             if left - 8 < x < right + 8:
                 for row in range(STREET_Y - 4, STREET_Y):
-                    paint(frame, pixels, x, row, dim((120, 84, 50), light))
-                for dx, dy, shade_of in ((-2, 0, 0), (-1, 0, 1), (0, 0, 1), (1, 0, 0), (2, 0, 0),
-                                         (-2, -1, 0), (-1, -1, 1), (0, -1, 1), (1, -1, 0), (2, -1, 0),
-                                         (-1, -2, 1), (0, -2, 1), (1, -2, 0), (0, -3, 0)):
-                    green = (74, 186, 96) if shade_of else (44, 146, 72)
-                    paint(frame, pixels, x + dx, STREET_Y - 5 + dy, dim(green, light))
+                    paint(frame, pixels, x, row, trunk)
+                for dx, dy, lit in TREE_CROWN:
+                    paint(frame, pixels, x + dx, STREET_Y - 5 + dy, leaf_lit if lit else leaf)
         if left - 10 < BENCH_X < right + 10:
-            wood = dim((150, 104, 60), light)
+            wood, back, leg = dim((150, 104, 60), light), dim((120, 83, 48), light), dim((70, 60, 54), light)
             for dx in range(8):
                 paint(frame, pixels, BENCH_X + dx, STREET_Y - 2, wood)
-                paint(frame, pixels, BENCH_X + dx, STREET_Y - 4, dim(wood, .8))
-            for leg in (1, 6):
-                paint(frame, pixels, BENCH_X + leg, STREET_Y - 1, dim((70, 60, 54), light))
+                paint(frame, pixels, BENCH_X + dx, STREET_Y - 4, back)
+            for post in (1, 6):
+                paint(frame, pixels, BENCH_X + post, STREET_Y - 1, leg)
             if 9 <= hour < 20 and not self.wet:      # reading the paper
                 x = BENCH_X + 3
                 paint(frame, pixels, x + 1, STREET_Y - 8, (224, 172, 120))

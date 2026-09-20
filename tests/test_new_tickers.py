@@ -274,3 +274,39 @@ class PixelTownDistrictsTests(unittest.TestCase):
         reach = [town.camera.look_at(spot) or town.camera.target for spot in town._interests(13.0)]
         self.assertLess(min(reach), 30, "the beach is out of the camera's reach")
         self.assertGreater(max(reach), TOWN.WORLD - TOWN.VIEW - 30, "the station is out of reach")
+
+
+class PixelTownPolishTests(unittest.TestCase):
+    def frame(self, hour, view, weather="sun", t=100.0):
+        registry = PluginRegistry(); registry.register(TOWN.plugin)
+        config = validate_config({}, registry)
+        town = TOWN.Town()
+        town.camera.x = town.camera.target = float(view)
+        town.camera.dwell = 1e9
+        snapshots = {"weather": Snapshot({"icon": weather})}
+        now = datetime(2026, 9, 20, hour, 30, tzinfo=timezone.utc)
+        for step in range(30):
+            frame = town.render(RenderContext(now, t + step / 30, config, snapshots, Message(), SystemStatus(), 1))
+        return frame
+
+    def test_two_signs_in_view_never_say_the_same_thing(self):
+        seen = []
+        original = TOWN.draw_tiny
+        TOWN.draw_tiny = lambda frame, text, x, y, colour, *a, **k: (seen.append((y, text)),
+                                                                     original(frame, text, x, y, colour, *a, **k))[1]
+        try:
+            self.frame(14, 128)
+        finally:
+            TOWN.draw_tiny = original
+        signs = [text for y, text in seen if y in (TOWN.SIGNS[0][2] - 8, TOWN.SIGNS[1][2] - 8)]
+        self.assertGreaterEqual(len(signs), 2)
+        self.assertNotEqual(*signs[-2:])   # the last frame's pair
+
+    def test_the_station_has_a_building_at_the_far_end(self):
+        edge = self.frame(14, TOWN.WORLD - TOWN.VIEW).getpixel((TOWN.VIEW - 4, 14))
+        self.assertGreater(edge[0], edge[2], "no brick building at the end of the platform")
+
+    def test_the_moon_lays_a_road_of_light_on_a_clear_night_sea(self):
+        clear, overcast = self.frame(1, 0), self.frame(1, 0, "cloud")
+        water = lambda frame: sum(sum(frame.getpixel((x, y))) for x in range(20, 100) for y in range(19, 24))
+        self.assertGreater(water(clear), water(overcast))

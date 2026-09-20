@@ -56,10 +56,11 @@ class ClockModule(Module):
         scale = 2 if settings["show_seconds"] else 3
         width = text_width(clock, scale)
         x = max(1, (128 - width - (16 if twelve else 0)) // 2)
-        draw_text(frame, clock, x, 1 if scale == 3 else 4, AMBER, scale)
+        draw_text(frame, clock, x, 1 if scale == 3 else 3, AMBER, scale)
         if twelve:
-            draw_text(frame, suffix, x + width + 4, 15 if scale == 3 else 11, AMBER)
-        centered(frame, now.strftime("%a %b ") + str(now.day), 25, MUTED)
+            draw_text(frame, suffix, x + width + 4, 15 if scale == 3 else 10, AMBER)
+        # Air below the date as well as above the time; it used to sit on the bottom row.
+        centered(frame, now.strftime("%a %b ") + str(now.day), 24 if scale == 3 else 21, MUTED)
         return frame
 
     @staticmethod

@@ -336,6 +336,7 @@ class Town(Module):
         self.surfer = {"x": 26.0, "ride": 0.0}
         self.train, self.train_wait = None, self.rng.uniform(4, 14)
         self.board = ("", "")
+        self._hour = 12.0
 
     def refresh_interval(self, context):
         return 1 / context.config["display"]["fps"]
@@ -587,7 +588,10 @@ class Town(Module):
         # Ground first, right across all three districts, then everything that
         # stands on it. Drawing order is depth: whatever comes last is nearest.
         light = _curve(LIGHT_KEYS, hour)
-        self._beach(frame, draw, pixels, night, tide_level((surf or {}).get("tide"), now), t, left, right, light)
+        overcast = kind in ("cloud", "rain", "storm", "snow", "fog")
+        moon = None if overcast or 6 <= hour <= 18 else round(4 + ((hour - 18) % 24) / 12 * 120)
+        self._hour = hour
+        self._beach(frame, draw, pixels, night, tide_level((surf or {}).get("tide"), now), t, left, right, light, moon)
         self._street(frame, draw, pixels, night, hour, t, left, right)
         self._station(frame, draw, pixels, night, t, left, right)
         for person in sorted(self.people, key=lambda p: p["x"]):
@@ -736,10 +740,11 @@ class Town(Module):
         if "temperature" in weather:
             items.append(f"{weather['temperature']}°")
         items.append(town_name)
-        text = items[math.floor(t / 6) % len(items)]
         # One fixed sign size for every message, so the sign never jumps.
         sign_width = max(tiny_width(item) for item in (*items, "12:59", "100°")) + 6
-        for x, width, top, _, _ in SIGNS:
+        for turn, (x, width, top, _, _) in enumerate(SIGNS):
+            # Each sign a step along, so two in view at once never say the same thing.
+            text = items[(math.floor(t / 6) + turn) % len(items)]
             sx = max(0, min(WORLD - 1 - sign_width, x + width // 2 - sign_width // 2))
             # Half a sign at the edge of the panel reads as a fault, so a sign the
             # camera cannot show whole is not drawn at all.
@@ -785,7 +790,7 @@ class Town(Module):
         height, shoal = self.sea.height, SHOAL
         return [level + height[x] * shoal[x] for x in range(BEACH_END)]
 
-    def _beach(self, frame, draw, pixels, night, level, t, left, right, light=1.0):
+    def _beach(self, frame, draw, pixels, night, level, t, left, right, light=1.0, moon=None):
         """Sea above, sand below, and the wash line moving between them."""
         if left >= BEACH_END:
             return
@@ -806,9 +811,26 @@ class Town(Module):
             pixels[x, row] = foam
             if speed[x] > 4.5 and row - 2 >= HORIZON:      # a crest breaking further out
                 pixels[x, row - 2] = foam
+        if moon is not None:
+            self._moonlight(pixels, moon, wash, t, left, right)
         self._boat(frame, pixels, level, night, t)
         self._pier(frame, draw, pixels, night, left, right, light)
         self._surfer(frame, pixels, wash, night)
+
+    @staticmethod
+    def _moonlight(pixels, moon, wash, t, left, right):
+        """The moon's road on the water: a column of glitter below it that widens
+        towards the shore. Each glint swells and fades slowly on its own beat; a
+        fast on/off twinkle reads as flicker on LEDs."""
+        for y in range(HORIZON + 1, 31):
+            reach = 1 + (y - HORIZON) // 2
+            for x in range(moon - reach, moon + reach + 1):
+                if not max(0, left) <= x < min(BEACH_END, right) or y >= wash[x] - .5 or (x * 7 + y * 13) % 3:
+                    continue
+                swell = .5 + .5 * math.sin(t * .9 + x * 1.7 + y * 2.3)
+                shine = swell * (1 - abs(x - moon) / (reach + 1)) * .95
+                if shine > .12:
+                    pixels[x, y] = tuple(min(255, round(c + k * shine)) for c, k in zip(pixels[x, y], (200, 205, 170)))
 
     @staticmethod
     def _pier(frame, draw, pixels, night, left, right, light=1.0):
@@ -953,6 +975,29 @@ class Town(Module):
                 plot(frame, pixels, post, CANOPY_Y + 1, (255, 224, 150))
                 for spread in range(-2, 3):
                     plot(frame, pixels, post + spread, STREET_Y - 6, (96, 84, 56))
+        if right > WORLD - 22:
+            self._station_house(draw, night)
+
+    def _station_house(self, draw, night):
+        """The station building at the end of the platform, with a clock that keeps
+        the town's time, so the far end is somewhere and not just more platform."""
+        x0 = WORLD - 20
+        roof, brick = ((34, 32, 44), (56, 32, 32)) if night else ((76, 72, 90), (132, 70, 58))
+        draw.rectangle((x0 - 1, 8, WORLD - 1, 9), fill=roof)
+        draw.rectangle((x0 - 1, 8, WORLD - 1, 8), fill=dim(roof, 1.5))
+        draw.rectangle((x0, 10, WORLD - 1, 25), fill=brick)
+        glass = (255, 226, 150) if night else (120, 170, 210)
+        for window in (x0 + 3, x0 + 15):
+            draw.rectangle((window, 17, window + 2, 20), fill=glass)
+        draw.rectangle((x0 + 9, 18, x0 + 11, 25), fill=(120, 90, 40) if night else (60, 38, 30))
+        cx, cy = x0 + 10, 13
+        face, hands = ((255, 226, 150), (40, 30, 20)) if night else ((236, 232, 220), (30, 30, 40))
+        draw.ellipse((cx - 2, cy - 2, cx + 2, cy + 2), fill=face)
+        hour = self._hour
+        for length, turn in ((2, hour * 60 % 60 / 60), (1, hour % 12 / 12)):
+            angle = turn * 2 * math.pi
+            draw.point((cx + round(length * math.sin(angle)), cy - round(length * math.cos(angle))), fill=hands)
+        draw.point((cx, cy), fill=hands)
 
     @staticmethod
     def _tunnel(draw, night, left, right):

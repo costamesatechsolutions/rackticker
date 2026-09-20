@@ -114,7 +114,8 @@ class WeatherProvider(Provider):
                       "hourly": "temperature_2m,precipitation_probability",
                       "daily": "sunrise,sunset,temperature_2m_max,temperature_2m_min,weather_code",
                       "temperature_unit": settings["temperature_unit"],
-                      "wind_speed_unit": "mph", "timezone": "auto", "forecast_days": 5}
+                      "wind_speed_unit": "mph" if settings["temperature_unit"] == "fahrenheit" else "kmh",
+                      "timezone": "auto", "forecast_days": 5}
             async with self.session.get(API, params=params) as response:
                 response.raise_for_status()
                 self.cached = normalize(await response.json(content_type=None))
@@ -268,7 +269,7 @@ class WeatherModule(Module):
         rows = []
         if data.get("high") is not None:
             rows += [(f"H {data['high']}°", (255, 132, 96)), (f"L {data['low']}°", (110, 180, 255))]
-        rows.append((f"{data['wind']} MPH", MUTED))
+        rows.append((f"{data['wind']} {'MPH' if unit == 'F' else 'KMH'}", MUTED))
         if len(rows) < 3:
             rows.insert(0, (f"FL {data['feels']}°", MUTED))
         for index, (text, color) in enumerate(rows[:3]):

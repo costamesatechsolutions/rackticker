@@ -297,3 +297,78 @@ class NewsFreshnessTests(unittest.TestCase):
                 {"title": "newer", "published": now - timedelta(minutes=5)},
                 {"title": "undated", "published": None}]
         self.assertEqual([row["title"] for row in news.fresh(rows, 12, now)], ["newer", "new", "undated"])
+
+
+class PixelTownDistrictsTests(unittest.TestCase):
+    """The beach and the station: a wider world than the panel, with real data
+    behind it when the plugins that fetch it are installed."""
+
+    def test_the_tide_puts_the_water_higher_up_the_sand_at_a_high_tide(self):
+        now = datetime(2026, 9, 20, 12, 0)
+        high = TOWN.tide_level({"high": True, "time": "2026-09-20 12:00", "then": "2026-09-20 18:12"}, now)
+        low = TOWN.tide_level({"high": False, "time": "2026-09-20 12:00", "then": "2026-09-20 18:12"}, now)
+        # Lower row number is further up the beach, because the sea is the band above.
+        self.assertLess(high, low)
+        self.assertAlmostEqual(TOWN.tide_level(None, now), (high + low) / 2, places=5)
+
+    def test_a_wave_moves_the_wash_line_instead_of_standing_still(self):
+        town = TOWN.Town()
+        town.sea.prime(1.6)
+        seen = set()
+        for _ in range(90):
+            town._sea_step(1 / 30, {"height": 4.0, "period": 9.0})
+            seen.add(round(town._wash(25.4)[40], 1))
+        self.assertGreater(len(seen), 8, "the water never moved")
+
+    def test_people_stand_on_the_sand_on_the_beach_and_the_pavement_in_town(self):
+        self.assertEqual(TOWN.ground_row(20), TOWN.SAND_ROW)
+        self.assertEqual(TOWN.ground_row(TOWN.TRUCK_X), TOWN.STREET_Y)
+        self.assertEqual(TOWN.ground_row(TOWN.PLATFORM_X + 40), TOWN.STREET_Y)
+        # and the ramp between them climbs rather than stepping up through the air
+        ramp = [TOWN.ground_row(x) for x in range(TOWN.BEACH_END - 16, TOWN.BEACH_END)]
+        self.assertEqual(ramp, sorted(ramp, reverse=True))
+        self.assertLessEqual(max(abs(a - b) for a, b in zip(ramp, ramp[1:])), 1)
+
+    def test_a_train_arrives_stops_and_leaves_through_the_tunnel(self):
+        town = TOWN.Town()
+        town.train, town.train_wait = None, 0.0
+        states, rng = [], town.rng
+        for _ in range(4000):
+            town._trains(1 / 30, 13.0, rng)
+            states.append(town.train["state"] if town.train else "away")
+            if states.count("leaving") and states[-1] == "away" and "stopped" in states:
+                break
+        self.assertEqual(["arriving", "stopped", "leaving", "away"],
+                         [state for n, state in enumerate(states) if n == 0 or state != states[n - 1]])
+        self.assertGreater(states.count("stopped"), 30, "it did not wait long enough to board")
+
+    def test_the_station_board_prefers_a_real_departure_to_an_invented_one(self):
+        town = TOWN.Town()
+        now = datetime(2026, 9, 20, 9, 5)
+
+        class Snap:
+            stale = False
+            data = {"lax": {"rows": [{"destination": "San Diego", "time": datetime(2026, 9, 20, 9, 18)}]}}
+
+        class Ctx:
+            snapshots = {"departures": Snap()}
+
+        self.assertEqual(("SAN DIEGO", "09:18"), town._departure(Ctx(), now))
+        # and without the plugin it still has somewhere to send you
+        where, when = town._departure(type("C", (), {"snapshots": {}})(), now)
+        self.assertIn(where, TOWN.DESTINATIONS)
+        self.assertRegex(when, r"^\d{2}:\d{2}$")
+
+    def test_nothing_drives_onto_the_sand_or_down_the_railway(self):
+        town = TOWN.Town()
+        for _ in range(3000):
+            town._simulate(1 / 30, 13.0, "sun", None)
+            for car in town.cars:
+                self.assertGreater(car["x"], TOWN.BEACH_END - 20)
+                self.assertLess(car["x"], TOWN.TOWN_END + 20)
+
+    def test_the_camera_can_reach_every_district(self):
+        town = TOWN.Town()
+        reach = [town.camera.look_at(spot) or town.camera.target for spot in town._interests(13.0)]
+        self.assertLess(min(reach), 30, "the beach is out of the camera's reach")
+        self.assertGreater(max(reach), TOWN.WORLD - TOWN.VIEW - 30, "the station is out of reach")

@@ -72,6 +72,82 @@ class DeparturesTests(unittest.TestCase):
                                 "FR 9612 per MILANO CENTRALE delle 17:05 è cancellato"])
 
 
+class BoardLoopTests(unittest.TestCase):
+    """A board left up longer than its own cycle must keep boarding, not freeze."""
+
+    def rows(self):
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        start = datetime.now(ZoneInfo("Europe/Rome")) + timedelta(minutes=8)
+        return [{"time": start + timedelta(minutes=n * 7), "delay": 15 if n == 0 else 0,
+                 "kind": "FR", "number": f"96{n}2", "name": "", "destination": "Milano Centrale",
+                 "track": str(10 + n), "moved": n == 1, "cancelled": n == 2}
+                for n in range(6)]
+
+    def board(self):
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        from app.core.config import validate_config
+        from app.core.models import Message, Snapshot, SystemStatus
+        from app.core.plugins import PluginRegistry
+        from app.modules.base import RenderContext
+        departures = community("departures")
+        registry = PluginRegistry(); registry.register(departures.plugin)
+        config = validate_config({"plugins": {"departures": {"station": "roma_termini",
+                                                            "clock": "station", "times": "station"}},
+                                  "modules": {"departures": {"enabled": True}},
+                                  "playlist": [{"id": "d", "module": "departures"}]}, registry)
+        zone = ZoneInfo("Europe/Rome")
+        rows = self.rows()
+        snapshot = Snapshot({"roma_termini": {"rows": rows,
+                                              "fetched_moment": rows[0]["time"].isoformat(), "live": True}})
+        module = departures.Board()
+        return lambda t: module.render(RenderContext(datetime.now(zone), t, config,
+                                                     {"departures": snapshot}, Message(), SystemStatus(), 1))
+
+    def test_the_board_is_still_moving_long_after_its_announcements(self):
+        render = self.board()
+        # Far past one full cycle of title, pages and announcements.
+        frames = {render(t).tobytes() for t in (120.0, 123.0, 126.0, 129.0, 132.0)}
+        self.assertGreater(len(frames), 3, "the board froze after its announcements")
+
+    def test_a_station_with_nothing_left_to_depart_is_skipped(self):
+        """A full timetable with every train gone is an empty screen, not a board."""
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        from app.core.config import validate_config
+        from app.core.models import Message, Snapshot, SystemStatus
+        from app.core.plugins import PluginRegistry
+        from app.modules.base import RenderContext
+        departures = community("departures")
+        registry = PluginRegistry(); registry.register(departures.plugin)
+        config = validate_config({"plugins": {"departures": {"station": "roma_termini",
+                                                            "clock": "station", "times": "station"}},
+                                  "modules": {"departures": {"enabled": True}},
+                                  "playlist": [{"id": "d", "module": "departures"}]}, registry)
+        zone = ZoneInfo("Europe/Rome")
+        gone = datetime.now(zone) - timedelta(hours=3)
+        rows = [{"time": gone, "delay": 0, "kind": "FR", "number": "9602", "name": "",
+                 "destination": "Milano", "track": "10", "moved": False, "cancelled": False}]
+        snapshot = Snapshot({"roma_termini": {"rows": rows, "fetched_moment": gone.isoformat(), "live": True}})
+        context = RenderContext(datetime.now(zone), 5.0, config, {"departures": snapshot},
+                                Message(), SystemStatus(), 1)
+        module = departures.Board()
+        self.assertFalse(module.available(context), "a board with nothing upcoming was offered")
+        self.assertIsNotNone(module.render(context).getbbox(), "it drew an empty screen")
+
+    def test_it_comes_back_to_the_departures_themselves(self):
+        """One full cycle later the board is showing the same page again."""
+        departures = community("departures")
+        render, rows = self.board(), self.rows()
+        _, title, pages, _, spoken = departures.Board()._plan(rows, "trenitalia")
+        cycle = title + pages * departures.PAGE_SECONDS + sum(seconds for _, seconds in spoken)
+        # A moment inside the pages, after the train has pulled in and the title has gone.
+        moment = departures.SCENE_SECONDS + title + 1.0
+        self.assertEqual(render(moment).tobytes(), render(moment + cycle).tobytes(),
+                         "the board did not come back round to the same page")
+
+
 class AmtrakTests(unittest.TestCase):
     """Amtrak's own feed, as the board reads it."""
 

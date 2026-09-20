@@ -4,6 +4,6 @@
   "entry": "plugin.py",
   "description": "Live station boards: Metrolink and Amtrak across the United States, BART's colour-coded lines, and seven European stations, each drawn the way that country's boards look, with trains pulling into the platform.",
   "author": "RackTicker",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "homepage": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/departures"
 }

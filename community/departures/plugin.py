@@ -554,12 +554,24 @@ class Board(Module):
         return 1 / context.config["display"]["fps"]
 
     def available(self, context):
+        """Only when a board has something still to depart.
+
+        A station can hold a full timetable and nothing upcoming — every train on
+        it has gone, or the clock is replaying a quiet hour — and a board with
+        nothing on it draws an empty screen."""
         snap = context.snapshots.get(self.name)
-        return bool(snap and snap.data and any(board["rows"] for board in snap.data.values()))
+        if not (snap and snap.data):
+            return False
+        settings = context.config["plugins"][self.name]
+        return any(self._upcoming(board, ZoneInfo(STATIONS[name][2]), settings)
+                   for name, board in snap.data.items() if name in STATIONS and board.get("rows"))
 
     def _station(self, context):
         snap = context.snapshots.get(self.name)
-        boards = {name: board for name, board in (snap.data or {}).items() if board["rows"]} if snap else {}
+        settings = context.config["plugins"][self.name]
+        boards = {name: board for name, board in (snap.data or {}).items()
+                  if name in STATIONS and board.get("rows")
+                  and self._upcoming(board, ZoneInfo(STATIONS[name][2]), settings)} if snap else {}
         if not boards:
             return None, None
         if context.scene != self.scene:
@@ -603,22 +615,35 @@ class Board(Module):
         settings = context.config["plugins"][self.name]
         moment, live = board_moment(settings, zone)
         rows = self._upcoming(board, zone, settings)
+        if not rows:
+            self._title(frame, name, moment, style, live, context.animation_time,
+                        live and settings["times"] != "station")
+            return frame
         scene, title, pages, heading, spoken = self._plan(rows, style_name)
         t = context.animation_time
         if t < scene:
             self._platform(frame, rows[0], style, style_name, t)
-        elif t < scene + title:
-            self._title(frame, name, moment, style, live, t - scene,
+            return frame
+        # The board loops for as long as the screen is up. Without this it ran off
+        # the end of the last announcement and sat on the heading for ever, which
+        # looked like a board stuck on AVVISO.
+        announcements = sum(seconds for _, seconds in spoken)
+        cycle = max(1.0, title + pages * PAGE_SECONDS + announcements)
+        since = (t - scene) % cycle
+        if since < title:
+            self._title(frame, name, moment, style, live, since,
                         live and settings["times"] != "station")
-        elif spoken and t >= scene + title + pages * PAGE_SECONDS:
-            local = t - scene - title - pages * PAGE_SECONDS
-            for text, seconds in spoken:
-                if local < seconds or (text, seconds) == spoken[-1]:
+        elif spoken and since >= title + pages * PAGE_SECONDS:
+            local = since - title - pages * PAGE_SECONDS
+            text = spoken[-1][0]
+            for said, seconds in spoken:
+                if local < seconds:
+                    text = said
                     break
                 local -= seconds
             self._notice(frame, heading, text, style, local, t)
         else:
-            local = t - scene - title
+            local = since - title
             page = min(pages - 1, int(local // PAGE_SECONDS))
             # Departures in your own time, unless you asked for the station's.
             shown = None if settings["times"] == "station" or not live else datetime.now().astimezone().tzinfo

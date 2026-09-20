@@ -65,7 +65,7 @@ so crawls step exactly one LED per frame.
 | **WatangTech RGB Matrix Adapter Board** | Sits on the Pi's header and drives the panels ("regular" pin mapping) |
 | **5 V power supply with a barrel plug** | 4 A or more; 8 A leaves headroom at full brightness. Match the adapter's jack |
 | **microSD card** | 16 GB or more, Raspberry Pi OS Lite |
-| **3D printed 2U rack face** | Four parts, eight M3 × 10 screws, and yes, it'll fit. **[Print files on MakerWorld](https://makerworld.com/en/models/3327605-rackticker-2u-led-ticker-for-your-server-rack)**; guide in [BEZEL_V10.md](hardware/enclosure/BEZEL_V10.md) |
+| **3D printed 2U rack face** | Four parts and eight M3 × 10 screws; 88 mm of rack height. **[Print files on MakerWorld](https://makerworld.com/en/models/3327605-rackticker-2u-led-ticker-for-your-server-rack)**; guide in [BEZEL_V10.md](hardware/enclosure/BEZEL_V10.md) |
 | **USB ADS-B receiver** *(optional)* | An RTL-SDR stick and antenna for planes overhead; without one, Flights uses a free network feed |
 
 The panel frame is always exactly 128×32 RGB. Typography, clipping and motion are
@@ -204,8 +204,10 @@ restart it with `sudo systemctl restart rackticker-matrix` after editing.
 - **Settings**: home location, brightness and night dimming, transitions, Home
   Assistant, and developer tools.
 
-The page has no login: keep it on a trusted network (it binds to `127.0.0.1` unless
-you pass `--host`). Everything it does is also a small JSON API under `/api/`.
+The page is open by default and binds to `127.0.0.1` unless you pass `--host` (the Pi
+install passes it, so the page is on your network). Set a password under
+Settings → Software if you want one. Everything the page does is also a small JSON
+API under `/api/`.
 
 ## Home Assistant and voice
 

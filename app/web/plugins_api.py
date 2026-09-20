@@ -117,9 +117,13 @@ def add_routes(app, runtime_key, store_key):
                 if source.get("kind") != "github":
                     continue
                 try:
-                    latest = await Installer.latest_commit(session, source["owner"], source["repo"], source["ref"])
-                    result[name] = {"current": source.get("commit"), "latest": latest,
-                                    "update": latest != source.get("commit")}
+                    # Compare the plugin's own folder: an install from before that was
+                    # recorded has nothing to compare, so it is offered the update once.
+                    latest = await Installer.latest_commit(session, source["owner"], source["repo"],
+                                                           source["ref"], source.get("folder", ""))
+                    current = source.get("folder_commit")
+                    result[name] = {"current": current or source.get("commit"), "latest": latest,
+                                    "update": latest != current}
                 except (aiohttp.ClientError, asyncio.TimeoutError, InstallError, KeyError) as exc:
                     result[name] = {"error": str(exc) or type(exc).__name__}
         return web.json_response(result)

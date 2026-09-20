@@ -129,11 +129,25 @@ class Installer:
         if len(data) > MAX_ZIP_BYTES:
             raise InstallError("That repository is too large to install as a plugin")
         link = f"https://github.com/{owner}/{repo}" + (f"/tree/{ref}/{folder}" if folder else f"/tree/{ref}")
+        # The commit that last touched this plugin's own folder, which is what an
+        # update check compares: in a shared repository the branch moves whenever
+        # any plugin does, and every installed plugin would claim an update.
+        changed = await self.latest_commit(session, owner, repo, commit, folder)
         return await self.from_zip(data, {"kind": "github", "url": link, "owner": owner, "repo": repo,
-                                          "ref": ref, "folder": folder, "commit": commit}, folder)
+                                          "ref": ref, "folder": folder, "commit": commit,
+                                          "folder_commit": changed}, folder)
 
     @staticmethod
-    async def latest_commit(session, owner, repo, ref):
+    async def latest_commit(session, owner, repo, ref, folder=""):
+        """The newest commit on ref, or with a folder, the newest one that changed it."""
+        if folder:
+            async with session.get(f"https://api.github.com/repos/{owner}/{repo}/commits",
+                                   params={"sha": ref, "path": folder, "per_page": 1},
+                                   headers=USER_AGENT) as response:
+                response.raise_for_status()
+                listed = await response.json()
+            if listed and re.fullmatch(r"[0-9a-f]{40}", str(listed[0].get("sha", ""))):
+                return listed[0]["sha"]
         async with session.get(f"https://api.github.com/repos/{owner}/{repo}/commits/{ref}",
                                headers={**USER_AGENT, "Accept": "application/vnd.github.sha"}) as response:
             if response.status in (404, 422):

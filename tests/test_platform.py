@@ -32,6 +32,30 @@ class InstallerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(InstallError):
             parse_github("https://example.com/a/b")
 
+    async def test_an_update_check_looks_at_the_plugins_own_folder(self):
+        """In a shared repository the branch moves whenever any plugin does."""
+        head, folder_commit = "a" * 40, "b" * 40
+
+        class Response:
+            def __init__(self, body): self.body, self.status = body, 200
+            async def __aenter__(self): return self
+            async def __aexit__(self, *exc): return False
+            def raise_for_status(self): pass
+            async def json(self): return self.body
+            async def text(self): return self.body
+
+        class Session:
+            def __init__(self, listed): self.listed, self.asked = listed, []
+            def get(self, url, params=None, headers=None):
+                self.asked.append(params)
+                return Response(self.listed if params is not None else head)
+
+        session = Session([{"sha": folder_commit}])
+        self.assertEqual(await Installer.latest_commit(session, "o", "r", "main", "plugins/f1"), folder_commit)
+        self.assertEqual(session.asked[0]["path"], "plugins/f1")
+        self.assertEqual(await Installer.latest_commit(Session([]), "o", "r", "main", "plugins/f1"), head)
+        self.assertEqual(await Installer.latest_commit(Session([]), "o", "r", "main"), head)
+
     def test_archives_cannot_escape(self):
         out = io.BytesIO()
         with zipfile.ZipFile(out, "w") as archive:

@@ -45,7 +45,7 @@ turn them on under Plugins.
 
 | Plugin | What it shows |
 | --- | --- |
-| [Departures](community/departures) | Live station boards: Amtrak anywhere in the United States, BART's colour-coded lines, and Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with real delays, platforms, station announcements, and trains pulling in |
+| [Departures](community/departures) | Live station boards: the London Underground in its own line colours, Metrolink and Amtrak across the United States, BART, and Budapest-Keleti, Roma Termini, Milan, Florence, Venice, Naples and Zürich, each in its country's style, with real delays, platforms, station announcements, and trains pulling in |
 | [Onboard](community/onboard) | The strip map above the carriage doors of a train that is really running: the line, its stops, the train sliding along it, the next stop and how long until it |
 | [Tanks](community/tanks) | California's reservoirs, and the space station's urine and water tanks, as sloshing water |
 | [Quakes](community/quakes) | Earthquakes around you from the USGS on a 24-hour seismograph |

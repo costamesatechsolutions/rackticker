@@ -252,6 +252,71 @@ class BartTests(unittest.TestCase):
         self.assertTrue(any(sum(c) < 120 for c in ink))     # and dark letters on it
 
 
+class TubeTests(unittest.TestCase):
+    """The Underground counts in seconds to the platform, not clock times."""
+
+    ARRIVALS = [
+        {"lineName": "Victoria", "towards": "Brixton", "timeToStation": 540,
+         "platformName": "Southbound - Platform 4"},
+        {"lineName": "Central", "towards": "Hainault via Newbury Park", "timeToStation": 60,
+         "platformName": "Eastbound - Platform 2"},
+        {"lineName": "Northern", "towards": "Check Front of Train", "timeToStation": 120,
+         "platformName": "Southbound"},
+        {"lineName": "Bakerloo", "towards": "Elephant and Castle", "timeToStation": None,
+         "platformName": "Southbound - Platform 3"},
+    ]
+
+    def board(self):
+        import asyncio
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        departures = community("departures")
+        zone = ZoneInfo("Europe/London")
+        when = datetime(2026, 9, 19, 18, 0, tzinfo=zone)
+
+        class Reply:
+            def raise_for_status(self): pass
+            async def json(self, content_type=None): return TubeTests.ARRIVALS
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+
+        class Session:
+            def get(self, *args, **kwargs): return Reply()
+
+        return asyncio.run(departures.tfl(Session(), "940GZZLUOXC", when, zone))
+
+    def test_seconds_to_the_platform_become_a_departure_time(self):
+        rows = {row["kind"]: row for row in self.board()}
+        self.assertEqual(rows["VIC"]["time"].strftime("%H:%M"), "18:09")
+        self.assertEqual(rows["CEN"]["time"].strftime("%H:%M"), "18:01")
+
+    def test_each_line_carries_the_colour_it_is_on_the_map(self):
+        rows = {row["kind"]: row for row in self.board()}
+        self.assertEqual(rows["VIC"]["color"], "0098d8")
+        self.assertEqual(rows["CEN"]["color"], "dc241f")
+
+    def test_the_platform_number_is_taken_out_of_the_direction(self):
+        rows = {row["kind"]: row for row in self.board()}
+        self.assertEqual(rows["VIC"]["track"], "4")
+        self.assertEqual(rows["CEN"]["track"], "2")
+
+    def test_a_destination_of_via_somewhere_keeps_only_the_destination(self):
+        rows = {row["kind"]: row for row in self.board()}
+        self.assertEqual(rows["CEN"]["destination"], "Hainault")
+
+    def test_a_train_that_will_not_say_where_it_is_going_is_left_off(self):
+        self.assertNotIn("NOR", {row["kind"] for row in self.board()})
+
+    def test_a_train_with_no_time_is_left_off(self):
+        self.assertNotIn("BAK", {row["kind"] for row in self.board()})
+
+    def test_the_northern_line_is_not_drawn_in_black_on_a_black_panel(self):
+        departures = community("departures")
+        badge, colour = departures.TUBE_LINES["Northern"]
+        self.assertEqual(badge, "NOR")
+        self.assertGreater(sum(int(colour[i:i + 2], 16) for i in (0, 2, 4)), 120)
+
+
 class MetrolinkTests(unittest.TestCase):
     """Metrolink answers for every station at once, in milliseconds since the epoch."""
 

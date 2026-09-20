@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import math
 import re
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -56,16 +57,23 @@ STATIONS = {
                   "RIVERSIDE-DOWNTOWN", "metrolink"),
     "burbank_airport": ("Burbank Airport", "Burbank", "America/Los_Angeles", "metrolink",
                         "BURBANK-AIRPORT-SOUTH", "metrolink"),
+    # The London Underground, each line in the colour it is on the map.
+    "oxford_circus": ("Oxford Circus", "London", "Europe/London", "tfl", "940GZZLUOXC", "tfl"),
+    "kings_cross": ("King's Cross St P", "London", "Europe/London", "tfl", "940GZZLUKSX", "tfl"),
+    "waterloo": ("Waterloo", "London", "Europe/London", "tfl", "940GZZLUWLO", "tfl"),
+    "baker_street": ("Baker Street", "London", "Europe/London", "tfl", "940GZZLUBST", "tfl"),
 }
 EURO_TOUR = ("budapest_keleti", "roma_termini", "milano_centrale", "firenze_smn", "venezia_sl",
              "napoli_centrale", "zurich_hb")
 US_TOUR = ("los_angeles_union", "anaheim_artic", "san_diego", "seattle_king_street", "chicago_union",
            "new_york_penn", "washington_union", "boston_south",
            "sf_embarcadero", "sf_powell", "oakland_12th", "berkeley")
+LONDON_TOUR = ("oxford_circus", "kings_cross", "waterloo", "baker_street")
 SOCAL_TOUR = ("la_union_metrolink", "anaheim_metrolink", "fullerton", "santa_ana", "irvine",
               "san_juan_capistrano", "riverside", "burbank_airport")
-TOURS = {"tour": EURO_TOUR, "usa": US_TOUR, "socal": SOCAL_TOUR, "world": EURO_TOUR + US_TOUR + SOCAL_TOUR}
-TOUR = EURO_TOUR + US_TOUR + SOCAL_TOUR   # the order boards are shown in, whichever are loaded
+TOURS = {"tour": EURO_TOUR + LONDON_TOUR, "usa": US_TOUR, "socal": SOCAL_TOUR, "london": LONDON_TOUR,
+         "world": EURO_TOUR + LONDON_TOUR + US_TOUR + SOCAL_TOUR}
+TOUR = EURO_TOUR + LONDON_TOUR + US_TOUR + SOCAL_TOUR   # the order boards are shown in, whichever are loaded
 # Metrolink names a stop by its platform code; this reads it back to know when a
 # train on the board is finishing its run here rather than passing through.
 STATIONS_BY_PLATFORM = {code: name for name, _city, _zone, source, code, _style in STATIONS.values()
@@ -86,6 +94,10 @@ STYLES = {
                "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED", "track_word": "track",
                "train": ((0, 70, 150), (225, 228, 232), (200, 30, 40))},
     # BART: each line keeps its own colour, which is how the system is read.
+    # The Underground: white on black, with the roundel's red as the accent.
+    "tfl": {"time": WHITE, "dest": WHITE, "track": (0, 25, 168), "accent": (220, 36, 31), "mixed": True,
+            "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED",
+            "track_word": "platform", "train": ((0, 25, 168), (235, 238, 240), (220, 36, 31))},
     # Metrolink: the deep blue of the trains, with Amtrak's trains on the same board.
     "metrolink": {"time": WHITE, "dest": WHITE, "track": (0, 70, 140), "accent": (0, 90, 165), "mixed": True,
                   "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED",
@@ -115,6 +127,9 @@ ANNOUNCE = {
     "amtrak": ("ATTENTION", "Train {train} to {dest}, the {time} departure, is running {delay} minutes late",
                "Train {train} to {dest}, the {time} departure, will depart from track {track}",
                "Train {train} to {dest}, the {time} departure, is cancelled"),
+    "tfl": ("ATTENTION", "The {time} {train} to {dest} is delayed by {delay} minutes",
+            "The {time} {train} to {dest} departs from platform {track}",
+            "The {time} {train} to {dest} has been cancelled"),
     "metrolink": ("ATTENTION", "The {time} {train} to {dest} is running {delay} minutes late",
                   "The {time} {train} to {dest} will use track {track}",
                   "The {time} {train} to {dest} has been cancelled"),
@@ -372,6 +387,50 @@ async def bart(session, code, when, zone):
     return rows
 
 
+TFL_URL = "https://api.tfl.gov.uk/StopPoint/{}/Arrivals"
+# The Underground's own line colours, and how the platform signs abbreviate them.
+TUBE_LINES = {"Bakerloo": ("BAK", "b26300"), "Central": ("CEN", "dc241f"), "Circle": ("CIR", "ffd329"),
+              "District": ("DIS", "007d32"), "Hammersmith & City": ("H&C", "f4a9be"),
+              "Jubilee": ("JUB", "a1a5a7"), "Metropolitan": ("MET", "9b0058"),
+              # The Northern line is black, which on a black panel is nothing at all,
+              # so its badge is the darkest grey that still reads as a badge.
+              "Northern": ("NOR", "3c3c44"), "Piccadilly": ("PIC", "0019a8"),
+              "Victoria": ("VIC", "0098d8"), "Waterloo & City": ("W&C", "93ceba"),
+              "Elizabeth": ("ELZ", "60399e"), "DLR": ("DLR", "00afad"), "London Overground": ("LO", "ee7c0e"),
+              "Liberty": ("LIB", "676767"), "Lioness": ("LNS", "ffa600"), "Mildmay": ("MIL", "0077ad"),
+              "Suffragette": ("SUF", "18a95d"), "Weaver": ("WEA", "823a62"), "Windrush": ("WIN", "ed1b00"),
+              "Tram": ("TRM", "5fb526")}
+
+
+async def tfl(session, stop, when, zone):
+    """London Underground arrivals, which are also its departures: a Tube train
+    stops for twenty seconds. TfL counts in seconds to the platform."""
+    async with session.get(TFL_URL.format(quote(stop)), headers=UA) as response:
+        response.raise_for_status()
+        payload = await response.json(content_type=None)
+    now = when.astimezone(zone)
+    rows = []
+    for train in payload or []:
+        if not isinstance(train, dict):
+            continue
+        seconds = train.get("timeToStation")
+        if not isinstance(seconds, (int, float)):
+            continue
+        line = str(train.get("lineName") or "")
+        badge, colour = TUBE_LINES.get(line, (line[:3].upper(), ""))
+        platform = str(train.get("platformName") or "")
+        # "Eastbound - Platform 2" is a direction and a number; the number is the sign.
+        number = platform.rsplit("Platform", 1)[-1].strip() if "Platform" in platform else ""
+        destination = str(train.get("towards") or train.get("destinationName") or "").strip()
+        destination = destination.split(" via ")[0].replace(" Underground Station", "").strip()
+        if not destination or destination.lower() == "check front of train":
+            continue
+        rows.append({"time": now + timedelta(seconds=max(0, round(seconds))), "delay": 0,
+                     "kind": badge, "number": "", "name": line, "color": colour,
+                     "destination": destination, "track": number, "moved": False, "cancelled": False})
+    return rows
+
+
 METROLINK_URL = "https://rtt.metrolinktrains.com/StationScheduleList.json"
 # Metrolink's line names as its own signs abbreviate them; its feed also carries
 # the Amtrak trains calling at the same platforms.
@@ -435,7 +494,7 @@ async def metrolink(session, platform, when, zone):
 
 
 SOURCES = {"mav": mav, "trenitalia": trenitalia, "sbb": sbb, "amtrak": amtrak, "bart": bart,
-           "metrolink": metrolink}
+           "metrolink": metrolink, "tfl": tfl}
 
 
 class Boards(Provider):

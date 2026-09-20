@@ -72,7 +72,8 @@ async def main():
         registry.register(module.plugin)
     config = validate_config({
         "plugins": {"weather": {"latitude": 40.758, "longitude": -73.9855}, "arcade": {"mode": "quest"},
-                    "ticker_wall": {"style": "taqueria"}, "tanks": {"iss": False}},
+                    "ticker_wall": {"style": "taqueria"}, "tanks": {"iss": False},
+                    "town": {"real_data": False}},
         "modules": {name: {"enabled": True} for name in SCREENS if name in ("clock",)},
         "display": {"transition": "slide_left", "brightness": 100},
         "playlist": [{"id": name, "module": name, "duration": TOUR.get(name, (seconds,))[0], "enabled": True,

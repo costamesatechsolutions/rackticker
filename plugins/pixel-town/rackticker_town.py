@@ -878,6 +878,8 @@ class Town(Module):
         draw.rectangle((BEACH_END - 4, STREET_Y - 8, BEACH_END - 1, 31), fill=(44, 44, 52) if night else (78, 76, 82))
         draw.rectangle((BEACH_END - 4, STREET_Y - 8, BEACH_END - 1, STREET_Y - 8),
                        fill=(64, 64, 74) if night else (112, 110, 116))
+        for row in range(STREET_Y - 5, 31, 3):
+            draw.line((BEACH_END - 4, row, BEACH_END - 1, row), fill=(36, 36, 44) if night else (62, 60, 66))
         if night:
             for pole in POLES:
                 plot(frame, pixels, pole + 1, STREET_Y - 7, (255, 220, 140))
@@ -1211,6 +1213,10 @@ class Town(Module):
         wall = (34, 34, 40) if night else (62, 60, 66)
         draw.rectangle((TOWN_END - 8, 17, TUNNEL_X + 7, 31), fill=wall)
         draw.rectangle((TOWN_END - 8, 17, TUNNEL_X + 7, 17), fill=(52, 52, 60) if night else (96, 94, 100))
+        for row in range(20, 31, 3):        # courses of brick, so the wall is a wall
+            draw.line((TOWN_END - 8, row, TUNNEL_X + 7, row), fill=dim(wall, .82))
+            for x in range(TOWN_END - 8 + (row // 3 % 2) * 2, TUNNEL_X + 8, 4):
+                draw.point((x, row + 1), fill=dim(wall, .82))
         # A footpath door for people catching a train; the tunnel is only for the rails.
         draw.rectangle((PEOPLE_EAST + 1, 19, PEOPLE_EAST + 5, STREET_Y), fill=(20, 18, 26))
         draw.rectangle((PEOPLE_EAST + 2, 20, PEOPLE_EAST + 4, STREET_Y), fill=(200, 160, 70) if night else (120, 100, 70))

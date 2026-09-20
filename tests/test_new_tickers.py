@@ -171,6 +171,64 @@ class NewTickerTests(unittest.TestCase):
                                         snapshots, Message(), SystemStatus(), hour)
                 validate_frame(module.render(context))
 
+    def test_nobody_walks_through_the_taco_truck(self):
+        """People on the pavement pass behind the truck; drawn over it they walked
+        through its side, which is what it looked like."""
+        town = TOWN.Town()
+        town.people = []
+        town._spawn_person(float(TOWN.TRUCK_X + 6))
+        person = town.people[0]
+        person.update(dir=1, hungry=False, fed=True, speed=8.0, dog=False, slot=None, carry=0.0)
+        frame = self.town_frame(town, hour=12)
+        pixels = frame.load()
+        body = {pixels[TOWN.TRUCK_X + 6 + dx, TOWN.STREET_Y - 4] for dx in range(3)}
+        self.assertNotIn(person["shirt"], body, "the person is drawn over the truck")
+
+    def test_the_queue_forms_one_behind_another(self):
+        """Everyone used to stop on the same pixel, so customers stood inside each other."""
+        town = TOWN.Town()
+        town.people = []
+        for x in (TOWN.WINDOW_X - 24, TOWN.WINDOW_X - 32, TOWN.WINDOW_X - 40):
+            town._spawn_person(float(x))
+            town.people[-1].update(dir=1, hungry=True, fed=False, speed=9.0, dog=False, slot=None, carry=0.0)
+        for _ in range(30 * 8):
+            town._simulate(1 / 30, 12.5, "sun", None)
+        queued = sorted(p["x"] for p in town.people if p["slot"] is not None)
+        self.assertGreaterEqual(len(queued), 2, "nobody queued at an open truck")
+        for near, far in zip(queued, queued[1:]):
+            self.assertGreaterEqual(far - near, TOWN.QUEUE_GAP - .01, "two customers in one spot")
+
+    def test_a_customer_is_served_and_walks_off_with_the_taco(self):
+        town = TOWN.Town()
+        town.people = []
+        town._spawn_person(float(TOWN.WINDOW_X - 6))
+        person = town.people[0]
+        person.update(dir=1, hungry=True, fed=False, speed=9.0, dog=False, slot=None, carry=0.0)
+        for _ in range(30 * 12):
+            town._simulate(1 / 30, 12.5, "sun", None)
+            if person["fed"]:
+                break
+        self.assertTrue(person["fed"], "nobody was ever served")
+        self.assertGreater(person["carry"], 0, "served without being handed anything")
+        self.assertIsNone(person["slot"], "still standing at the window after being served")
+
+    def test_the_queue_breaks_up_when_the_truck_closes(self):
+        town = TOWN.Town()
+        town.people = []
+        town._spawn_person(float(TOWN.WINDOW_X))
+        person = town.people[0]
+        person.update(dir=1, hungry=True, fed=False, speed=9.0, dog=False, slot=0, carry=0.0)
+        town._simulate(1 / 30, 15.0, "sun", None)      # between lunch and dinner: shutter down
+        self.assertIsNone(person["slot"], "left queueing at a closed truck for ever")
+
+    def town_frame(self, town, hour):
+        from datetime import datetime, timezone
+        registry = PluginRegistry(); registry.register(TOWN.plugin)
+        config = validate_config({"plugins": {"town": {}}, "modules": {"town": {"enabled": True}},
+                                  "playlist": [{"id": "town", "module": "town"}]}, registry)
+        now = datetime(2026, 9, 15, hour, 30, tzinfo=timezone.utc)
+        return town.render(RenderContext(now, 1.0, config, {}, Message(), SystemStatus(), 1))
+
     def test_pixel_quest_hero_never_gets_stuck(self):
         """A platform ending one column before a step left no headroom to jump it."""
         import random

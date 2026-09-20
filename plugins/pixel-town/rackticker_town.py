@@ -28,6 +28,7 @@ BUSY_KEYS = ((0, .3), (5, .25), (7, .6), (12, .9), (18, .85), (22, .45), (24, .3
 SKINS = ((255, 214, 170), (224, 172, 120), (176, 120, 80), (120, 80, 52))
 SHIRTS = ((230, 60, 60), (60, 140, 240), (250, 200, 60), (80, 200, 120), (240, 240, 240), (200, 90, 200))
 CAR_COLORS = ((210, 40, 40), (230, 230, 230), (40, 90, 210), (250, 200, 30), (110, 110, 124), (40, 160, 90))
+VAN_COLORS = ((235, 235, 228), (60, 150, 220), (235, 140, 40), (90, 170, 100))
 # A taco truck: the taco on its roof, a striped awning over the serving window, a cab
 # with its own window, and wheels. t shell, l lettuce, r salsa, a/s awning stripes.
 TRUCK = ("....ttttt.........",
@@ -40,8 +41,28 @@ TRUCK = ("....ttttt.........",
          ".ooooooooooooooooo",
          "..gkg.......gkg...")
 CAR = ("..ggggg..", ".cgggggc.", "ccccccccc", ".kk...kk.")
+# A delivery van: taller box body, a cab window at the front, a logo panel.
+VAN = ("..ccccccccc..", ".gcccccccccc.", "ccccccccccccc", ".kk.......kk.")
+BIRD = ("w.w", ".w.")
+# Shops at street level, so the pavement is somewhere people are going, not a strip
+# of grey. Each one: where it starts, how wide, and the hour it closes.
+SHOPS = ((6, 7, 21, (210, 70, 60)), (26, 6, 18, (70, 150, 210)),
+         (48, 7, 23, (240, 180, 60)), (68, 6, 20, (80, 180, 120)))
 PLANE = ("...w...", "wwwwwww", "..www..")
 STREET_Y, TRUCK_X = 25, 92
+# Customers queue at the serving window, on the pavement beside the truck, one
+# behind the other. Three deep is all the space there is, and all it needs.
+WINDOW_X, QUEUE_GAP, QUEUE_DEPTH = TRUCK_X - 4, 4, 3
+SERVE_SECONDS = (2.5, 5.0)     # how long an order takes at the window
+CARRY_SECONDS = 6.0            # how long the taco is still in hand afterwards
+
+
+def shade(frame, pixels, x, y, factor=.4):
+    """Darken one pixel. plot() adds light the way an LED does; a shadow is the
+    opposite of that, so it has to be written rather than blended."""
+    if 0 <= x < frame.size[0] and 0 <= y < frame.size[1]:
+        red, green, blue = pixels[x, y]
+        pixels[x, y] = (int(red * factor), int(green * factor), int(blue * factor))
 
 
 def _curve(keys, hour):
@@ -123,6 +144,8 @@ class Town(Module):
         for lane in (0, 1):
             self._spawn_car(lane, self.rng.uniform(0, 120))
         self.clouds = [[self.rng.uniform(0, 128), self.rng.uniform(2, 9), self.rng.uniform(.8, 2.2)] for _ in range(4)]
+        self.birds = []
+        self.cat = None
 
     def refresh_interval(self, context):
         return 1 / context.config["display"]["fps"]
@@ -132,12 +155,57 @@ class Town(Module):
         self.people.append({"x": x if x is not None else (-4.0 if direction > 0 else 131.0), "dir": direction,
                             "speed": self.rng.uniform(5, 10), "shirt": self.rng.choice(SHIRTS),
                             "skin": self.rng.choice(SKINS), "hungry": self.rng.random() < .45,
-                            "pause": 0.0, "fed": False, "dog": self.rng.random() < .08})
+                            "pause": 0.0, "fed": False, "dog": self.rng.random() < .08,
+                            "slot": None, "carry": 0.0})
 
     def _spawn_car(self, lane, x=None):
         direction = 1 if lane == 0 else -1
-        self.cars.append({"x": x if x is not None else (-10.0 if direction > 0 else 138.0), "dir": direction,
-                          "lane": lane, "speed": self.rng.uniform(18, 34), "color": self.rng.choice(CAR_COLORS)})
+        # One vehicle in five is a van: something bigger to look at, and it holds
+        # the traffic up behind it the way a van does.
+        van = self.rng.random() < .2
+        self.cars.append({"x": x if x is not None else (-14.0 if direction > 0 else 140.0), "dir": direction,
+                          "lane": lane, "speed": self.rng.uniform(12, 20) if van else self.rng.uniform(18, 34),
+                          "color": self.rng.choice(VAN_COLORS if van else CAR_COLORS), "van": van})
+
+    @staticmethod
+    def _slot_x(slot):
+        """Where the person this far back in the queue stands."""
+        return WINDOW_X - slot * QUEUE_GAP
+
+    def _joins_queue(self, person):
+        """A hungry passer-by tacks on to the back of the queue as they reach it."""
+        taken = [p["slot"] for p in self.people if p["slot"] is not None]
+        slot = len(taken)
+        if slot >= QUEUE_DEPTH or slot in taken:
+            return False
+        # Only as they arrive at the spot, so nobody teleports to the window.
+        if abs(person["x"] - self._slot_x(slot)) > person["speed"] * .12 + 1:
+            return False
+        person["slot"], person["pause"] = slot, 0.0
+        return True
+
+    def _queue_step(self, person, dt, rng, truck_open):
+        """Shuffle up, wait your turn, take the taco and go."""
+        target = self._slot_x(person["slot"])
+        if not truck_open:                      # the shutter came down: everyone drifts off
+            person["slot"], person["fed"] = None, True
+            return
+        if abs(person["x"] - target) > .5:      # walk up to your place in the queue
+            person["x"] += math.copysign(min(abs(target - person["x"]), person["speed"] * dt), target - person["x"])
+            return
+        person["x"] = target
+        if person["slot"] > 0:                  # not your turn yet
+            return
+        if person["pause"] <= 0:
+            person["pause"] = rng.uniform(*SERVE_SECONDS)
+            return
+        person["pause"] -= dt
+        if person["pause"] > 0:
+            return
+        person["slot"], person["fed"], person["carry"] = None, True, CARRY_SECONDS
+        for other in self.people:               # everyone behind takes a step forward
+            if other["slot"]:
+                other["slot"] -= 1
 
     def _simulate(self, dt, hour, weather, flight):
         rng = self.rng
@@ -149,11 +217,12 @@ class Town(Module):
             self._spawn_person()
             self.people_wait = rng.uniform(1.2, 5) / max(.12, busy)
         for person in self.people:
-            if person["pause"] > 0:
-                person["pause"] -= dt
+            if person["carry"] > 0:
+                person["carry"] -= dt
+            if person["slot"] is not None:
+                self._queue_step(person, dt, rng, truck_open)
                 continue
-            if truck_open and person["hungry"] and not person["fed"] and abs(person["x"] - (TRUCK_X - 4)) < 1:
-                person["pause"], person["fed"] = rng.uniform(3, 7), True
+            if truck_open and person["hungry"] and not person["fed"] and self._joins_queue(person):
                 continue
             person["x"] += person["dir"] * person["speed"] * dt * (1.5 if wet else 1)
         self.people = [p for p in self.people if -8 < p["x"] < 136]
@@ -171,6 +240,25 @@ class Town(Module):
         self.cars = [c for c in self.cars if -14 < c["x"] < 142]
         for cloud in self.clouds:
             cloud[0] = (cloud[0] + cloud[2] * dt) % 150
+        daylight = 6.5 < hour < 19.5
+        if daylight and not self.birds and rng.random() < dt * .18:
+            direction = rng.choice((-1, 1))
+            flock = rng.randrange(2, 4)
+            self.birds = [{"x": (-6.0 if direction > 0 else 134.0) - n * rng.uniform(4, 7) * direction,
+                           "y": rng.uniform(3, 9), "dir": direction, "speed": rng.uniform(9, 14)}
+                          for n in range(flock)]
+        for bird in self.birds:
+            bird["x"] += bird["dir"] * bird["speed"] * dt
+            bird["y"] += math.sin(bird["x"] * .12) * dt * 1.2
+        self.birds = [b for b in self.birds if -10 < b["x"] < 138] if daylight else []
+        # Somebody has to be out at 3 AM, and in a town this size it is a cat.
+        if self.cat:
+            self.cat["x"] += self.cat["dir"] * 11 * dt
+            if not -6 < self.cat["x"] < 134:
+                self.cat = None
+        elif not daylight and rng.random() < dt * .05:
+            direction = rng.choice((-1, 1))
+            self.cat = {"x": -5.0 if direction > 0 else 133.0, "dir": direction}
         if self.plane:
             self.plane["x"] += self.plane["dir"] * 16 * dt
             if not -60 < self.plane["x"] < 190:
@@ -202,6 +290,7 @@ class Town(Module):
         pixels = frame.load()
         self._celestial(frame, draw, pixels, hour, t, kind)
         self._clouds(draw, kind)
+        self._birds(frame, pixels, self.birds, t)
         self._plane(frame, pixels, t)
         frame.paste(skyline(math.floor(hour * 12)), (0, 0), skyline(math.floor(hour * 12)))
         self._sign(frame, draw, now, weather, t, context.config["plugins"][self.name]["town_name"])
@@ -272,6 +361,11 @@ class Town(Module):
         draw_tiny(frame, text, sx + sign_width // 2 - tiny_width(text) // 2, top - 8, (255, 176, 20))
 
     def _street(self, frame, draw, pixels, night, hour, t):
+        # A pavement for people to walk on. Without it they were drawn against
+        # whatever window happened to be behind them and read as floating specks.
+        draw.rectangle((0, STREET_Y - 6, 127, STREET_Y - 1), fill=(38, 38, 46) if night else (52, 52, 60))
+        draw.rectangle((0, STREET_Y - 6, 127, STREET_Y - 6), fill=(58, 58, 68) if night else (74, 74, 84))
+        self._shops(draw, hour)
         draw.rectangle((0, STREET_Y, 127, STREET_Y), fill=(70, 70, 76))
         draw.rectangle((0, STREET_Y + 1, 127, 31), fill=(24, 24, 28))
         for x in range(0, 128, 8):
@@ -293,38 +387,111 @@ class Town(Module):
                    "r": (240, 60, 40) if truck_open else (110, 40, 30),
                    "a": (255, 255, 255) if chase else (220, 60, 50),
                    "s": (220, 60, 50) if chase else (255, 255, 255)}
-        stamp(frame, sprite(TRUCK, palette), TRUCK_X, STREET_Y - len(TRUCK))
+        # People on the pavement pass BEHIND the truck, which is what a truck parked
+        # at the kerb does to the view. Drawn over it, they walked through its side.
         for person in sorted(self.people, key=lambda p: p["x"]):
             self._person(frame, pixels, person, t)
+        stamp(frame, sprite(TRUCK, palette), TRUCK_X, STREET_Y - len(TRUCK))
+        if truck_open:
+            self._truck_life(frame, pixels, t)
+        if self.cat:
+            self._cat(frame, pixels, self.cat, t)
         for lane in (0, 1):
             for car in self.cars:
                 if car["lane"] == lane:
                     self._car(frame, pixels, car, night)
 
     @staticmethod
+    def _shops(draw, hour):
+        """Lit shopfronts at street level: somewhere for everyone to be walking to."""
+        for x, width, closes, awning in SHOPS:
+            open_now = 8 <= hour < closes
+            glass = (255, 208, 130) if open_now else (46, 44, 56)
+            draw.rectangle((x, STREET_Y - 5, x + width - 1, STREET_Y - 2), fill=(30, 30, 38))
+            # Its own awning, so a row of shops is a street rather than a pattern.
+            draw.rectangle((x, STREET_Y - 5, x + width - 1, STREET_Y - 5),
+                           fill=awning if open_now else dim(awning, .35))
+            draw.rectangle((x + 1, STREET_Y - 4, x + width - 2, STREET_Y - 3), fill=glass)
+            # A doorway, dark whether the lights are on or not.
+            draw.rectangle((x + width - 2, STREET_Y - 4, x + width - 2, STREET_Y - 2), fill=(24, 22, 30))
+
+    @staticmethod
+    def _birds(frame, pixels, birds, t):
+        for bird in birds:
+            flap = math.floor(t * 7 + bird["x"] * .3) % 2
+            x, y = round(bird["x"]), round(bird["y"])
+            plot(frame, pixels, x + 1, y + (1 if flap else 0), (228, 230, 238))
+            for dx in (0, 2):
+                plot(frame, pixels, x + dx, y + (0 if flap else 1), (228, 230, 238))
+
+    @staticmethod
+    def _truck_life(frame, pixels, t):
+        """What an open taco truck looks like from across the street: somebody in the
+        window, and steam off the griddle."""
+        top = STREET_Y - len(TRUCK)
+        cook = TRUCK_X + 6
+        # Dark against the lit window, the way you actually see someone serving.
+        # Written straight to the pixels: plot() blends like light, and shade is
+        # the absence of light, so a silhouette drawn with it would never appear.
+        for x, y in ((cook, top + 4), (cook - 1, top + 5), (cook, top + 5), (cook + 1, top + 5)):
+            if 0 <= x < frame.size[0] and 0 <= y < frame.size[1]:
+                pixels[x, y] = (86, 50, 30)
+        # Three wisps on their own slow cycles, so the steam never pulses in time.
+        for wisp in range(3):
+            phase = (t * .8 + wisp * .37) % 1
+            y = top + 2 - phase * 5
+            if y < 0:
+                continue
+            x = cook + 2 + wisp + math.sin(phase * 4 + wisp) * 1.4
+            plot(frame, pixels, round(x), round(y), dim((235, 238, 245), .85 - phase * .55))
+
+    @staticmethod
     def _person(frame, pixels, person, t):
         x = round(person["x"])
-        step = person["pause"] <= 0 and math.floor(t * 6 + person["speed"]) % 2
+        step = person["slot"] is None and person["pause"] <= 0 and math.floor(t * 6 + person["speed"]) % 2
         top = STREET_Y - 5
         plot(frame, pixels, x + 1, top, person["skin"])
-        for dx in range(3):
-            plot(frame, pixels, x + dx, top + 1, person["shirt"])
-        plot(frame, pixels, x + 1, top + 2, person["shirt"])
+        # A solid two-row body. One row over a single pixel drew a plus sign, which
+        # is what a person a few pixels tall looks like when you skimp on the middle.
+        for row in (top + 1, top + 2):
+            for dx in range(3):
+                plot(frame, pixels, x + dx, row, person["shirt"])
+        for sx in range(3):   # a shadow at their feet is what puts them on the ground
+            shade(frame, pixels, x + sx, top + 5)
         legs = ((x, x + 2) if not step else (x + 1,))
-        for lx in legs:
-            plot(frame, pixels, lx, top + 3, (50, 50, 70))
-            plot(frame, pixels, lx, top + 4, (50, 50, 70))
+        for lx in legs:   # darker than the pavement, or the legs disappear into it
+            for row in (top + 3, top + 4):
+                if 0 <= lx < frame.size[0]:
+                    pixels[lx, row] = (26, 26, 38)
+        if person["carry"] > 0:   # walking away with the taco they just paid for
+            hand = x + (3 if person["dir"] > 0 else -1)
+            plot(frame, pixels, hand, top + 2, (255, 190, 40))
+            plot(frame, pixels, hand, top + 1, (220, 60, 50))
         if person["dog"]:
             dx = x - 4 * person["dir"]
             for px, py in ((0, 1), (1, 1), (2, 1), (3, 1), (0, 2), (3, 2), (3 if person["dir"] > 0 else 0, 0)):
                 plot(frame, pixels, dx + px, top + 2 + py, (170, 120, 70))
 
     @staticmethod
+    def _cat(frame, pixels, cat, t):
+        x, y = round(cat["x"]), STREET_Y - 2
+        nose = 3 if cat["dir"] > 0 else 0
+        for dx in range(4):
+            plot(frame, pixels, x + dx, y + 1, (60, 58, 66))
+        plot(frame, pixels, x + nose, y, (60, 58, 66))                  # head
+        plot(frame, pixels, x + (0 if cat["dir"] > 0 else 3),
+             y + round(math.sin(t * 4) * .5), (60, 58, 66))             # tail, flicking
+        plot(frame, pixels, x + nose, y, (150, 220, 120) if math.floor(t * 2) % 2 else (60, 58, 66))
+
+    @staticmethod
     def _car(frame, pixels, car, night):
         y = STREET_Y + 1 if car["lane"] == 0 else STREET_Y + 3
         x = round(car["x"])
-        stamp(frame, sprite(CAR, {"c": car["color"], "g": (110, 170, 220), "k": (12, 12, 16)}, flip=car["dir"] < 0), x, y)
-        front, back = (x + 8, x) if car["dir"] > 0 else (x, x + 8)
+        body = VAN if car.get("van") else CAR
+        stamp(frame, sprite(body, {"c": car["color"], "g": (110, 170, 220), "k": (12, 12, 16)},
+                            flip=car["dir"] < 0), x, y)
+        length = len(body[0]) - 1
+        front, back = (x + length, x) if car["dir"] > 0 else (x, x + length)
         plot(frame, pixels, back, y + 2, (255, 40, 40))
         if night:
             plot(frame, pixels, front, y + 2, (255, 244, 200))

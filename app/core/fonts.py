@@ -215,7 +215,13 @@ def glyph_mask(char, scale=1, smooth=False):
     # Glyphs are separated by a blank column, so Scale2x per glyph is identical
     # to Scale2x over a whole line, and far cheaper for long headlines.
     if smooth and scale == 2:
-        return _scale2x(glyph_mask(char, 1))
+        mask = _scale2x(glyph_mask(char, 1))
+        if char == "D":
+            # Scale2x chamfers every outer corner, and a D with its square left side
+            # rounded off is an O: "DL" on an airline badge read as "OL".
+            for y in (0, mask.height - 1):
+                mask.putpixel((0, y), 1)
+        return mask
     width = glyph_width(char)
     mask = Image.new("1", (width * scale, len(GLYPHS[char]) * scale))
     draw = ImageDraw.Draw(mask)

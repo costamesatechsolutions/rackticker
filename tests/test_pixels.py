@@ -5,6 +5,11 @@ from app.core.renderer import new_frame, clipped_text, scrolling_text, scroll_po
 
 
 class PixelTests(unittest.TestCase):
+    def test_a_smooth_d_keeps_its_square_side_so_it_is_not_an_o(self):
+        d, o = text_mask("D", 2, True), text_mask("O", 2, True)
+        self.assertEqual((d.getpixel((0, 0)), d.getpixel((0, d.height - 1))), (1, 1))
+        self.assertEqual((o.getpixel((0, 0)), o.getpixel((0, o.height - 1))), (0, 0))
+
     def test_tiny_m_and_h_are_distinct_at_a_distance(self):
         from app.core.fonts import tiny_mask
         self.assertNotEqual(tiny_mask("M").size, tiny_mask("H").size)

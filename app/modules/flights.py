@@ -29,7 +29,16 @@ FLYBY_SECONDS = 2.2         # an aircraft this close crosses the panel first
 OVERHEAD_MILES = 2.0
 SPOT_LIMIT = 4
 COMPASS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
-PLANE = ((2, 0), (2, 1), (3, 1), (0, 2), (1, 2), (2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (2, 3), (3, 3), (2, 4))
+# The marker between the two airport codes. At seven pixels it was a cross with a
+# bump; a jet needs a nose, a tail fin and a wing before it reads as one.
+PLANE_ROWS = (".##..........",
+              "###..........",
+              "#############",
+              "........####.",
+              ".......####..",
+              "........##...")
+PLANE = tuple((x, y) for y, row in enumerate(PLANE_ROWS) for x, mark in enumerate(row) if mark == "#")
+PLANE_WIDE = len(PLANE_ROWS[0])
 AIRLINER = sprite((
     "..........WW........",
     ".........WWW........",
@@ -199,23 +208,31 @@ class FlightModule(Module):
         if carrier:  # Names as the airline writes them: "United 1432", "JetBlue 88".
             name = f"{display_name(carrier[1])} {name.split()[-1]}"
         lower = bool(carrier)
-        title = name if text_width(name, 1, lower) <= INFO_WIDTH else short
-        draw_text(card, _fit(title, INFO_WIDTH, 1, lower), INFO_X, 0, WHITE, mixed=lower)
+        # How long is left is worth more than the airline's full name, so the name
+        # gives up its room first: "JetBlue 1524" becomes "B6 1524" to make space.
+        minutes = row.get("minutes_left")
+        ticking = "" if minutes is None or minutes >= 900 else (
+            f"{minutes}M" if minutes < 100 else f"{minutes // 60}H{minutes % 60:02d}M")
+        budget = INFO_WIDTH - (tiny_width(ticking) + 4 if ticking else 0)
+        title = name if text_width(name, 1, lower) <= budget else short
+        draw_text(card, _fit(title, budget, 1, lower), INFO_X, 0, WHITE, mixed=lower)
         origin, destination = row.get("origin"), row.get("destination")
         kind = row.get("type")
         if origin and destination:
             draw_text(card, origin, INFO_X, 9, WHITE, 2, True)
             x = INFO_X + text_width(origin, 2) + 3
             for dx, dy in PLANE:
-                card.putpixel((x + dx, 14 + dy), AMBER)
-            draw_text(card, destination, x + 10, 9, WHITE, 2, True)
+                card.putpixel((x + dx, 13 + dy), AMBER)
+            draw_text(card, destination, x + PLANE_WIDE + 3, 9, WHITE, 2, True)
             # Everything at once underneath: the cities in full, and how long is left.
             cities = [city.upper() for city in row.get("cities") or []]
             line = f"{cities[0]} {ARROW} {cities[1]}" if len(cities) == 2 else where(row)
             left = row.get("minutes_left")
             # The aircraft goes beside the cities; the time left sits by the flight number.
             plane = type_name(row["type"], long=False) if row.get("type") else ""
-            clock = "" if left is None or left >= 900 else (f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}")
+            # "5H19" read as a number cut off halfway, so the minutes say so.
+            clock = "" if left is None or left >= 900 else (
+                f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}M")
             room = INFO_WIDTH
             # The big codes already say from and to, so when the aircraft will not fit
             # beside both cities, name the city it is heading for.
@@ -232,6 +249,7 @@ class FlightModule(Module):
                 clock = ""
             if clock and text_width(title, 1, lower) + 4 + tiny_width(clock) <= INFO_WIDTH:
                 draw_tiny(card, clock, 128 - tiny_width(clock), 1, AMBER)
+                clock = ""
             draw_tiny(card, _fit_tiny(line, room), INFO_X, 26, WHITE if len(cities) == 2 else GREEN)
         else:
             # No published route (private and military flights): the aircraft is the story.

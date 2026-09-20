@@ -2,6 +2,18 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.4.0 - 2026-09-20
+
+- **Flights** now know what the aircraft is. A plane does not transmit its type, so
+  the receiver never had one; RackTicker now reads the aircraft database that
+  dump1090 keeps beside its own web page, the way its map does. Every aircraft
+  overhead resolved instantly on the test rack, with no network call.
+- **Sportsbook** keeps the line up once a game is under way: the favourite, the
+  spread and the total alternate with the channel. Off with Lines on live games.
+- **The stock tape** sits out the weekend; there is a setting for market hours only.
+- The README says up front that anyone can write a screen, and links the starter.
+  It also no longer claims the control page has no password.
+
 ## 1.3.0 - 2026-09-19
 
 - **Pixel Town**: people no longer walk through the taco truck — they pass behind

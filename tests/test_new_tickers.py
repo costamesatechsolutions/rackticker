@@ -395,6 +395,26 @@ class PixelTownLifeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TOWN.validate({"town_name": "TOWN", "real_data": "yes"})
 
+    def test_after_dark_nobody_is_on_the_beach_and_the_cat_keeps_to_the_pavement(self):
+        town = self.town()
+        for _ in range(30 * 400):
+            town._simulate(1 / 30, 2.0, "sun", None)
+            for person in town.people:
+                self.assertGreater(person["x"], TOWN.BEACH_END - 16 - 3, "somebody on the beach at 2 AM")
+            if town.cat:
+                self.assertGreater(town.cat["x"], TOWN.BEACH_END - 3)
+                self.assertLess(town.cat["x"], TOWN.PEOPLE_EAST + 5)
+        self.assertLess(len(town.people), 12, "people pile up instead of going home")
+
+    def test_by_day_nobody_walks_where_the_wash_has_reached(self):
+        town = self.town()
+        town.level = 30.0                      # the water is up over the row people walk on
+        for _ in range(30 * 120):
+            town._simulate(1 / 30, 13.0, "sun", None)
+            for person in town.people:
+                if 0 <= person["x"] < TOWN.BEACH_END - 16:
+                    self.assertEqual(person["dir"], 1, "walking further into the water")
+
     def test_it_rains_umbrellas(self):
         town, frame = self.town(), TOWN.new_frame() if hasattr(TOWN, "new_frame") else None
         from PIL import Image
@@ -416,3 +436,35 @@ class PixelTownLifeTests(unittest.TestCase):
             TOWN.Town._car(frame, frame.load(), car, False, step / 6)
             seen.add(frame.getpixel((13, TOWN.STREET_Y)))
         self.assertEqual(seen, {(255, 40, 40), (40, 90, 255)})
+
+    def test_a_bus_stops_at_its_stop_and_the_traffic_waits_behind_it(self):
+        town = self.town()
+        town.cars, town.people, town.bus_wait = [], [], 0.0
+        halted = False
+        for _ in range(30 * 60):
+            town._simulate(1 / 30, 12.0, "sun", None)
+            bus = next((c for c in town.cars if c.get("bus")), None)
+            if bus and bus["halt"] > 0:
+                halted = True
+                self.assertEqual(bus["speed"], 0.0)
+                self.assertGreaterEqual(bus["x"] + TOWN.BUS_DOOR, TOWN.BUS_STOP_X)
+                behind = [c for c in town.cars if c is not bus and c["lane"] == 0 and c["x"] < bus["x"]]
+                for car in behind:
+                    self.assertLess(car["x"] + len(TOWN.CAR[0]), bus["x"] + 1, "a car drove into the back of the bus")
+        self.assertTrue(halted, "the bus never stopped")
+
+    def test_pigeons_scatter_when_somebody_walks_up_and_ships_stay_on_the_sea(self):
+        town = self.town()
+        town.pigeons = [{"x": 240.0, "y": 25.0, "dir": 1, "zone": (232, 262), "hop": 9, "fly": False, "vx": 0.0, "vy": 0.0}]
+        town.people = []
+        town._spawn_person(241.0)
+        town._pigeons_step(1 / 30, town.rng, 12.0)
+        self.assertTrue(town.pigeons[0]["fly"])
+        town.pigeons = []
+        town._pigeons_step(1 / 30, town.rng, 2.0)          # asleep at 2 AM
+        self.assertEqual(town.pigeons, [])
+        town.ship_wait = 0.0
+        for _ in range(30 * 200):
+            town._ship_step(1 / 30, town.rng)
+            if town.ship:
+                self.assertTrue(-17 < town.ship["x"] < TOWN.BEACH_END + 5)

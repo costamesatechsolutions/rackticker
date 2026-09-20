@@ -9,6 +9,8 @@ import asyncio
 import importlib.util
 import sys
 import time
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw
@@ -41,6 +43,12 @@ PLUGINS.update(community("departures", "tanks", "markets", "ticker_wall", "arcad
 SCREENS = ("clock", "finance", "sportsbook", "departures", "markets", "news", "weather", "tanks", "ticker_wall",
            "town", "arcade", "f1")
 SCALE, FPS = 3, 10
+# The demo is filmed on a weekday late morning wherever and whenever it runs: the stock
+# tape is live, the sun is up and the taco truck is open, instead of whatever hour it is.
+DEMO_MOMENT = (2026, 9, 22, 11, 20)
+# Pixel Town is three districts wide, so it stays long enough to visit each: the beach,
+# the high street, then the station (town x at the middle of the panel).
+TOUR = {"town": (21, ((0, 50), (7, 165), (14, 320)))}
 
 
 def led_mask():
@@ -67,10 +75,19 @@ async def main():
                     "ticker_wall": {"style": "taqueria"}, "tanks": {"iss": False}},
         "modules": {name: {"enabled": True} for name in SCREENS if name in ("clock",)},
         "display": {"transition": "slide_left", "brightness": 100},
-        "playlist": [{"id": name, "module": name, "duration": seconds, "enabled": True, "mode": "normal"}
+        "playlist": [{"id": name, "module": name, "duration": TOUR.get(name, (seconds,))[0], "enabled": True,
+                      "mode": "normal"}
                      for name in SCREENS],
     }, registry)
     runtime = Runtime(config, BrowserSink(), registry)
+    real_context = runtime.context
+
+    def context():
+        seen = real_context()
+        return replace(seen, now=seen.now + shift)
+    zone = real_context().now.tzinfo
+    shift = datetime(*DEMO_MOMENT, tzinfo=zone) - real_context().now
+    runtime.context = context
     # A few rounds of refreshes so team logos (fetched a handful per poll) are in.
     for _ in range(5):
         for name in runtime.providers:
@@ -78,7 +95,7 @@ async def main():
     runtime.scheduler.tick(0, runtime.eligible())
     mask, frames = led_mask(), []
     now, dt = time.monotonic(), 1 / 30
-    visited = set()
+    visited, toured = set(), set()
     step = 0
     while True:
         now += dt
@@ -87,14 +104,24 @@ async def main():
         if current == SCREENS[0] and visited >= set(SCREENS):
             break
         visited.add(current)
+        elapsed = runtime.scheduler.current.elapsed
+        length, stops = TOUR.get(current, (seconds, ()))
+        camera = getattr(runtime.modules[current], "camera", None)
+        if camera is not None:
+            camera.dwell = 1e9          # the tour moves the camera, not chance
+            for at, spot in stops:
+                if elapsed >= at and spot not in toured:
+                    toured.add(spot)
+                    camera.look_at(spot, urgent=True)
         # A README loop shows each screen briefly; skip the hold that finishes a headline.
-        if runtime.scheduler.current.elapsed >= seconds:
+        if elapsed >= length:
+            toured.clear()
             runtime.scheduler.next(runtime.eligible())
         if step % (30 // FPS) == 0:
             big = runtime.frame.resize((128 * SCALE, 32 * SCALE), Image.Resampling.NEAREST)
             frames.append(ImageChops.multiply(big, mask))
         step += 1
-        if step > 30 * seconds * len(SCREENS) * 4:
+        if step > 30 * (seconds * len(SCREENS) + 60) * 4:
             break
     await runtime.close()
     output = ROOT / "docs/demo.gif"

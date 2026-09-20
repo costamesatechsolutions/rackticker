@@ -8,18 +8,16 @@
 
 ![RackTicker installed in a 19-inch rack](docs/photos/in-rack.jpg)
 
-Live LED signage for your server rack. RackTicker turns two 64×32 RGB LED panels and a Raspberry Pi into a 128×32 ticker
-that lives in a 19-inch rack: stock tape, odds boards, news, flights overhead,
-weather, a pixel town and whatever you build next, with more in the community catalog. Every screen is
-a plugin, every bundled data source is free and needs no key, and nothing needs a
-cloud account. Run it on your computer first: the browser emulator shows the exact
+Live LED signage for your server rack. RackTicker turns two 64×32 RGB LED panels and a
+Raspberry Pi into a 128×32 ticker that lives in a 19-inch rack: stock tape, odds boards,
+news, flights overhead, weather and a pixel town, with more in the community catalog.
+Every screen is a plugin, the bundled data sources are free and need no key, and nothing
+needs a cloud account. Run it on your computer first: the browser emulator shows the exact
 pixels the panels will.
 
-**Write your own screen.** Every screen here is a plugin, and yours installs the same
-way: a folder with a `plugin.json` and one Python file, running in its own sandboxed
-process. Fork the **[plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter)**
-— a complete screen in about forty lines — or run `python -m app.dev new my_plugin`.
-See [Make a screen](#make-a-screen) and [docs/plugins.md](docs/plugins.md).
+To write your own screen, fork the
+**[plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter)**
+or run `python -m app.dev new my_plugin`. See [Make a screen](#make-a-screen).
 
 ## Screens
 
@@ -28,9 +26,9 @@ See [Make a screen](#make-a-screen) and [docs/plugins.md](docs/plugins.md).
 | Stock tape | The day's movers and your watchlist with company names, sparklines and each company's latest headline, under a flipping index header |
 | Sportsbook | A Vegas odds board: spreads, totals and moneylines, big live scores with the bases, count and outs or the down and distance, banners for big plays, fireworks when your team scores |
 | News desk | Network channels as a TV lower third or a Times Square zipper, in mixed-case headlines |
-| Flights | The planes overhead like an airport board: airline mark, flight number and route, with the destination, aircraft, altitude and time to go turning over beneath; a departures-style list when several are about; a fly-by when one is overhead. Local ADS-B receiver or a free network feed |
+| Flights | The planes overhead: airline mark, flight number and route, then destination, aircraft, altitude and time to go; a list when several are about, a fly-by when one is directly overhead. Local ADS-B receiver or a free network feed |
 | Weather | Animated sky, hourly chart and four-day forecast |
-| Pixel Town | A living city on real time: sunrise, lit windows at night, your weather, real flights overhead |
+| Pixel Town | A small town on real time in three districts: a beach with the real tide and swell, a high street with a taco truck and your weather, and a station with real departures. The panel is a camera that drifts between them. The beach and station use the Surf and Departures plugins when installed |
 | Clocks | Desk clock (with a 4:20 surprise) and TIX Clock |
 
 **[Community plugins](https://github.com/costamesatechsolutions/rackticker-community-plugins)** live in their own repository and install from the
@@ -90,7 +88,7 @@ python -m pip install -r requirements.txt
 python -m app
 ```
 
-Open **http://localhost:8080/** — on your own computer the control page is on port
+Open **http://localhost:8080/**. On your own computer the control page is on port
 **8080**. (Installed on a Pi it is on **8081**; see below.) The first run starts a
 playlist of real screens and asks where the rack is.
 
@@ -119,12 +117,10 @@ open it to your LAN, `--output hub75` on a Pi).
    It builds the panel driver, reboots, and installs the newest release by itself
    (about ten minutes on a Pi 3A+).
 
-3. **Open the control page at `http://<your-pi>:8081/`** — port **8081**, not 8080.
-   When the panels light up they show the address to use, both the name and the IP
-   address: `rackticker.local:8081` over `192.168.1.50:8081`. Whatever hostname you
-   set in the imager is the name, so a Pi called `ticker` answers at
-   `ticker.local:8081`. If `.local` does not resolve on your network (some Windows
-   and Android setups), use the IP address the panel shows.
+3. **Open the control page at `http://<your-pi>:8081/`** (port 8081, not 8080). The panels
+   show the address when they light up, by name and by IP: `rackticker.local:8081` or
+   `192.168.1.50:8081`. The name is the hostname you set in the imager. If `.local` does not
+   resolve (some Windows and Android setups), use the IP.
 
 That is the last time you need SSH:
 
@@ -143,35 +139,27 @@ That is the last time you need SSH:
   keeps a backup of your old settings and leaves Wi-Fi alone; *Wi-Fi only* forgets
   the network and opens setup mode, for when RackTicker moves house without you;
   *Everything* clears settings, plugins, the password and Wi-Fi; *Ready to pass on*
-  does all of that and then some — see below.
+  does all of that and then some (see below).
 - **Password:** optional, in Settings → Software. Forgot it? Unplug RackTicker as soon
   as its panel lights up, three times in a row; on the next start the panel says
   PASSWORD CLEARED. No computer needed.
 - **Crash protection:** if RackTicker keeps stopping, it goes back to the previous version.
 
-### Passing one on, or making cards from one image
+### Passing one on, or cloning cards
 
-**Settings → Software → Reset → Ready to pass on** hands the unit over clean. It
-clears the settings, the installed plugins, any plugin logins, the control page
-password and the saved Wi-Fi, then wipes the system log and shell history — and
-then clears what makes the device *itself*: its machine id, its ssh host keys and
-its name. It powers off; wait for the panel to go dark before unplugging it.
+**Settings → Software → Reset → Ready to pass on** hands a unit over clean. It clears
+settings, installed plugins, plugin logins, the control page password and the saved Wi-Fi,
+wipes the system log and shell history, and clears the device's own identity (machine id,
+ssh host keys and name). Then it powers off; wait for the panel to go dark before
+unplugging.
 
-That last part matters if you clone the card. Two Pis imaged from one card without
-it share a machine id, so a DHCP server can hand them the same address; they offer
-the same ssh host key, so neither is telling the truth about who it is; and they
-both answer to the same `.local` name, so on one network only one of them is
-reachable. After a *Ready to pass on*, the first boot of each card makes its own
-machine id and host keys and names itself after its own Pi — `rackticker-3c4d`,
-from the processor's serial number — so any number of cards from one image come up
-as different devices. The panel shows the name and address it settled on.
+Cards cloned from one image without that step share a machine id, ssh host keys and
+`.local` name, so the Pis clash on a network. After *Ready to pass on*, each card's first
+boot makes its own and names itself from its Pi's serial number (for example
+`rackticker-3c4d`). The panel shows the name and address it settled on.
 
-To make a master card: set one up, reset it *Ready to pass on*, then image the
-card once it has powered off.
-
-Rendering runs under an unprivileged service account; a small root-owned C++
-companion alone owns the GPIO and receives frames over a local socket, and the
-updater and network keeper are separate root services the web page can only ask.
+To make a master card: set one up, reset it *Ready to pass on*, then image the card once
+it has powered off.
 
 **Developing from a computer:** `RACKTICKER_PI_HOST=pi@rackticker.local ./tools/deploy_pi.sh`
 installs your committed working copy the same way, with the same health check and rollback.
@@ -220,10 +208,10 @@ Matter bridge) and say "turn on Show Sportsbook".
 
 ## Make a screen
 
-A plugin is a folder with a `plugin.json` and a Python file. You never edit
-RackTicker itself. The quickest start is to fork the
-**[plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter)** —
-a complete screen in about forty lines — or to scaffold your own:
+A plugin is a folder with a `plugin.json` and a Python file; you never edit RackTicker
+itself. Fork the
+**[plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter)**
+or scaffold your own:
 
 ```sh
 python -m app.dev new surf_report           # a working starting point
@@ -232,14 +220,14 @@ python -m app.dev preview surf_report       # live in the browser, reloads on sa
 python -m app.dev push surf_report --to rackticker.local:8081
 ```
 
-Share it as a folder in a public GitHub repository: anyone installs it by pasting
-the link into **Plugins → Add a plugin** and updates it with one click. Installed
-plugins run in their own sandboxed process, so a crash or hang restarts only that
-plugin and the display never waits for it. The scaffold ships an `AGENTS.md` with
-the panel's rules, so an AI coding agent (Codex, Claude, Cursor) can build and check
-a screen on its own. To list yours for everyone, open a pull request against the
-**[community plugins repository](https://github.com/costamesatechsolutions/rackticker-community-plugins)** — one folder and one catalog entry, and it
-appears in everyone's Plugins page. Full guide: [docs/plugins.md](docs/plugins.md).
+Share it as a folder in a public GitHub repository: anyone installs it by pasting the link
+into **Plugins → Add a plugin**, and updates it with one click. Installed plugins run in
+their own sandboxed process, so a crash or hang restarts only that plugin and the display
+never waits for it. The scaffold includes an `AGENTS.md` with the panel's rules, so an AI
+coding agent can build and check a screen on its own. To list yours for everyone, open a
+pull request against the
+**[community plugins repository](https://github.com/costamesatechsolutions/rackticker-community-plugins)**
+with one folder and one catalog entry. Full guide: [docs/plugins.md](docs/plugins.md).
 
 ## How it stays smooth
 
@@ -249,6 +237,10 @@ parsing to a helper process, so a 1 MB market feed never freezes a frame; instal
 plugins run in their own processes entirely. Frames slower than 25 ms and loop
 stalls are recorded under `perf` in `/api/state`. Details:
 [docs/architecture.md](docs/architecture.md).
+
+Rendering runs as an unprivileged service. A small root-owned C++ companion alone owns the
+GPIO and takes frames over a local socket, and the updater and network keeper are separate
+root services the web page can only ask.
 
 ## Develop
 

@@ -32,7 +32,9 @@ CELEBRATION_SECONDS = 12
 FLASH_SECONDS, BANNER_SECONDS = 180, 2.6   # a big play leads its game's card for a while
 # The matchup sits centred below the header; a bottom scores crawl only
 # repeated the games the cards already rotate through, and pulled the eye.
-BODY_TOP, BODY_HEIGHT = 11, 18
+# The card fills the panel below the header. It used to stop three rows short,
+# which left the football field a two-pixel sliver under the scores.
+BODY_TOP, BODY_HEIGHT = 11, 21
 
 
 def slate(snapshot):
@@ -257,28 +259,30 @@ class Sportsbook(Module):
 
     @staticmethod
     def _field(body, game, extra):
-        """The field strip under the score, as TV draws it: the away end zone on the left
+        """The field under the score, as TV draws it: the away end zone on the left
         and the home one on the right, the ball, and the yellow first-down line."""
         draw = ImageDraw.Draw(body)
-        left, right, y = 18, 109, 16
+        left, right, top, bottom = 18, 109, 16, 19
         yards = lambda yard: left + 4 + round((100 - yard) * (right - left - 8) / 100)
-        draw.rectangle((left, y, right, y + 1), fill=(20, 70, 30))
-        draw.rectangle((left, y, left + 3, y + 1), fill=team_color(game.away))
-        draw.rectangle((right - 3, y, right, y + 1), fill=team_color(game.home))
-        for yard in range(10, 100, 10):   # ten-yard lines
-            draw.point((yards(yard), y), fill=(60, 120, 70))
+        draw.rectangle((left, top, right, bottom), fill=(18, 62, 28))
+        draw.rectangle((left, top, left + 3, bottom), fill=team_color(game.away))
+        draw.rectangle((right - 3, top, right, bottom), fill=team_color(game.home))
+        for yard in range(10, 100, 10):   # ten-yard lines, longer every fifty
+            height = bottom if yard == 50 else bottom - 1
+            draw.line((yards(yard), top + 1, yards(yard), height), fill=(52, 110, 62))
         yard, ball = int(extra["yard"]), extra.get("ball")
         togo = int(extra.get("togo") or 0)
         if ball and togo:
             # The away team drives toward the home goal (yard line falling), and back.
             target = yard - togo if ball == "away" else yard + togo
             if 0 < target < 100:
-                draw.line((yards(target), y - 1, yards(target), y + 1), fill=(255, 220, 0))
-        draw.rectangle((yards(yard) - 1, y, yards(yard) + 1, y + 1),
-                       fill=RED if extra.get("red_zone") else (190, 110, 40))
-        for side, x0, step in (("away", 1, 3), ("home", 126, -3)):   # timeouts left, under each logo
+                draw.line((yards(target), top, yards(target), bottom), fill=(255, 220, 0))
+        spot = yards(yard)
+        draw.ellipse((spot - 1, top + 1, spot + 1, bottom - 1),
+                     fill=RED if extra.get("red_zone") else (210, 120, 45))
+        for side, x0, step in (("away", 1, 3), ("home", 126, -3)):   # timeouts under each logo
             for n in range(int(extra.get(f"{side}_timeouts") or 0)):
-                draw.point((x0 + n * step, 17), fill=LAMP)
+                draw.point((x0 + n * step, bottom), fill=LAMP)
 
     @staticmethod
     def _hockey(body, extra, blink):

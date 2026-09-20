@@ -290,6 +290,13 @@ def journey(payload, latitude, longitude, speed_kts):
         return {}
     flown = distance_bearing(origin[0], origin[1], latitude, longitude)[0]
     left = distance_bearing(latitude, longitude, destination[0], destination[1])[0]
+    direct = distance_bearing(origin[0], origin[1], destination[0], destination[1])[0]
+    # A callsign is reused day after day, so the route on file can belong to a
+    # different leg than the one being flown. If the aeroplane is nowhere near the
+    # line between these two airports, the route is not this flight's: say nothing
+    # rather than "374 minutes to go" over a plane that is minutes from landing.
+    if flown + left > max(60.0, direct * 1.4 + 60):
+        return {}
     result = {"progress": round(flown / max(1.0, flown + left), 3)}
     if speed_kts and speed_kts >= 60:
         mph = speed_kts * 1.150779448

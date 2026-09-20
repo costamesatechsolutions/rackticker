@@ -19,6 +19,38 @@ adsb = util.module_from_spec(spec)
 spec.loader.exec_module(adsb)
 
 
+class RouteSanityTests(unittest.TestCase):
+    """A callsign is flown again every day, so the route on file may be yesterday's."""
+
+    LAX, SFO = (33.94, -118.40), (37.62, -122.38)
+    SPS, SBN = (33.99, -98.49), (41.71, -86.32)     # Wichita Falls to South Bend
+    OVER_ORANGE_COUNTY = (33.70, -117.89)
+
+    def journey(self, origin, destination, where, speed=420):
+        payload = {"response": {"flightroute": {
+            "origin": {"latitude": origin[0], "longitude": origin[1]},
+            "destination": {"latitude": destination[0], "longitude": destination[1]}}}}
+        return adsb.journey(payload, where[0], where[1], speed)
+
+    def test_a_flight_on_its_route_keeps_its_timings(self):
+        found = self.journey(self.LAX, self.SFO, self.OVER_ORANGE_COUNTY)
+        self.assertIn("minutes_left", found)
+        self.assertGreater(found["minutes_left"], 0)
+
+    def test_a_route_the_aircraft_is_nowhere_near_is_not_this_flight(self):
+        """It read as 374 minutes to go over a plane that was minutes from landing."""
+        self.assertEqual(self.journey(self.SPS, self.SBN, self.OVER_ORANGE_COUNTY), {})
+
+    def test_a_short_hop_is_not_thrown_out_for_being_short(self):
+        near = (33.80, -118.10)
+        self.assertIn("progress", self.journey(self.LAX, (32.73, -117.19), near))
+
+    def test_a_parked_aircraft_has_no_minutes_but_keeps_its_route(self):
+        found = self.journey(self.LAX, self.SFO, self.LAX, speed=0)
+        self.assertIn("progress", found)
+        self.assertNotIn("minutes_left", found)
+
+
 class AirframeDatabaseTests(unittest.TestCase):
     """The receiver's own database: a plane does not transmit what it is."""
 

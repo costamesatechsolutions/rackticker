@@ -1,4 +1,6 @@
 import importlib.util
+import random
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 import unittest
@@ -280,7 +282,9 @@ class PixelTownPolishTests(unittest.TestCase):
     def frame(self, hour, view, weather="sun", t=100.0):
         registry = PluginRegistry(); registry.register(TOWN.plugin)
         config = validate_config({}, registry)
-        town = TOWN.Town()
+        real = random.Random
+        with unittest.mock.patch.object(TOWN.random, "Random", lambda: real(7)):
+            town = TOWN.Town()      # the same crowd every time, so only the weather differs
         town.camera.x = town.camera.target = float(view)
         town.camera.dwell = 1e9
         snapshots = {"weather": Snapshot({"icon": weather})}

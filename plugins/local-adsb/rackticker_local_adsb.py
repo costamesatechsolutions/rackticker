@@ -22,6 +22,53 @@ DATABASE_DIRS = (Path("/usr/share/skyaware/html/db"), Path("/usr/share/dump1090-
                  Path("/usr/local/share/skyaware/html/db"), Path("/usr/share/readsb/html/db"))
 
 
+N_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"   # the FAA skips I and O
+
+
+def _suffix(rem):
+    """The one or two trailing letters an N-number can carry."""
+    if rem == 0:
+        return ""
+    rem -= 1
+    first, second = divmod(rem, 25)
+    return N_ALPHABET[first] + (N_ALPHABET[second - 1] if second else "")
+
+
+def tail_number(hexid):
+    """The US registration an ICAO address belongs to, N1 through N99999.
+
+    The FAA assigns these in one arithmetic sequence, so the tail number on the
+    aeroplane can be worked out from the address it transmits."""
+    try:
+        value = int(str(hexid), 16)
+    except (TypeError, ValueError):
+        return ""
+    if not 0xA00001 <= value <= 0xADF7C7:
+        return ""
+    offset = value - 0xA00001
+    digit1, rest = divmod(offset, 101711)
+    out = f"N{digit1 + 1}"
+    if rest < 601:
+        return out + _suffix(rest)
+    rest -= 601
+    digit2, rest = divmod(rest, 10111)
+    out += str(digit2)
+    if rest < 601:
+        return out + _suffix(rest)
+    rest -= 601
+    digit3, rest = divmod(rest, 951)
+    out += str(digit3)
+    if rest < 601:
+        return out + _suffix(rest)
+    rest -= 601
+    digit4, rest = divmod(rest, 35)
+    out += str(digit4)
+    # The last place takes nothing, a letter, or one more digit.
+    if rest == 0:
+        return out
+    return out + (N_ALPHABET[rest - 1] if rest <= 24 else str(rest - 25))
+
+
 class Airframes:
     """The receiver's own aircraft database, read a little at a time.
 
@@ -222,14 +269,16 @@ def select_aircraft(data, receiver, settings, now, collect=None):
             positioned += 1
             if distance > settings["radius_miles"]:
                 continue
-            callsign = str(item.get("flight") or identity).strip().upper()[:8] or identity
             # Network feeds (and newer readsb builds) include type and registration.
             kind = str(item.get("t") or "").strip().upper()
             registration = str(item.get("r") or "").strip().upper()
             if not kind or not registration:   # a receiver reports only what was transmitted
                 known = airframes.find(identity)
                 kind = kind or known.get("icao_type", "")
-                registration = registration or known.get("registration", "")
+                registration = registration or known.get("registration", "") or tail_number(identity)
+            # With no callsign, the tail number is what is painted on the aeroplane;
+            # its ICAO address is what nobody outside this hobby has ever read.
+            callsign = str(item.get("flight") or "").strip().upper()[:8] or registration or identity
             flight = Flight(callsign, kind if 2 <= len(kind) <= 4 and kind.isalnum() else "ADS-B", "---", "---",
                             optional_number(item.get("alt_baro"), -2000, 100000),
                             optional_number(item.get("gs"), 0, 2000), distance, bearing,
@@ -301,7 +350,10 @@ def journey(payload, latitude, longitude, speed_kts):
     if speed_kts and speed_kts >= 60:
         mph = speed_kts * 1.150779448
         result["minutes_flown"] = round(flown / mph * 60 + 10)
-        result["minutes_left"] = round(left / mph * 60 + (8 if left < 60 else 15))
+        # Still climbing, most of the way to go: at its speed now, a transatlantic
+        # departure reads as twenty hours. Far out, assume it will cruise.
+        cruise = max(speed_kts, 420) if left > 300 else speed_kts
+        result["minutes_left"] = round(left / (cruise * 1.150779448) * 60 + (8 if left < 60 else 15))
     return result
 
 

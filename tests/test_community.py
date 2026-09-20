@@ -285,6 +285,37 @@ class OnboardTests(unittest.TestCase):
         self.assertEqual(onboard.short("Oakland-Jack London Square, CA"), "Oakland Jack London Square")
 
 
+class SurfWaterTests(unittest.TestCase):
+    """The sea is simulated, so it has to stay a sea for as long as the rack is on."""
+
+    def test_the_water_stays_bounded_for_hours(self):
+        surf = community("surf")
+        water = surf.Water()
+        water.prime(3.0)
+        for _ in range(30 * 60 * 30):        # half an hour at 30 fps
+            water.step(1 / 30, 13, 3.0)
+        self.assertTrue(all(abs(h) < 40 for h in water.height), "the springs blew apart")
+        self.assertTrue(all(h == h for h in water.height), "the water became NaN")
+
+    def test_a_long_gap_between_frames_does_not_explode_it(self):
+        """Coming back to this screen after an hour must not arrive as a tidal wave."""
+        surf = community("surf")
+        water = surf.Water()
+        water.prime(2.0)
+        water.step(3600, 13, 2.0)
+        self.assertTrue(all(abs(h) < 40 for h in water.height))
+
+    def test_waves_actually_move(self):
+        surf = community("surf")
+        water = surf.Water()
+        water.prime(3.0)
+        before = list(water.height)
+        for _ in range(15):
+            water.step(1 / 30, 13, 3.0)
+        moved = sum(1 for a, b in zip(before, water.height) if abs(a - b) > .05)
+        self.assertGreater(moved, 40, "the sea is standing still")
+
+
 class SurfTideTests(unittest.TestCase):
     """The sea sits where the tide puts it: 0 at dead low, 1 at dead high."""
 

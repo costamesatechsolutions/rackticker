@@ -33,7 +33,7 @@
       "id": "surf",
       "name": "Surf",
       "author": "RackTicker",
-      "description": "The surf at your break: wave height, swell period and direction, water temperature, and the tide you can see \u2014 the sea sits high or low with it.",
+      "description": "The surf at your break: wave height, swell period and direction, water temperature, and real water \u2014 a simulated sea driven by the actual swell, sitting high or low with the actual tide.",
       "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/surf"
     },
     {

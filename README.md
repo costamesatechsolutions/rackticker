@@ -77,6 +77,8 @@ designed at that size, so what the emulator shows is what the panels show.
 Two panels, the adapter board on the Pi's header, one barrel jack for power, and
 an ADS-B stick if you want the planes overhead to be the ones actually overhead.
 
+The whole build in order, from printing to first light, is in [docs/assembly.md](docs/assembly.md).
+
 ## Try it on your computer
 
 Python 3.10 or newer:

@@ -13,3 +13,4 @@ dist/
 # Renders written by python -m app.dev check
 preview.png
 preview.gif
+NEXT.md

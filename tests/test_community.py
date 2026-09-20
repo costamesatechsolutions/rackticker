@@ -232,6 +232,59 @@ class MetrolinkTests(unittest.TestCase):
         self.assertEqual([row["number"] for row in self.board("LAUS")], [])
 
 
+class OnboardTests(unittest.TestCase):
+    """The strip map above the carriage doors: where the train is on its line."""
+
+    def run_for(self, statuses, now="2026-09-19T12:30:00-07:00"):
+        stations = []
+        for index, status in enumerate(statuses):
+            hour = 10 + index
+            stations.append({"code": f"S{index}", "name": f"Stop {index} Station", "status": status,
+                             "schArr": f"2026-09-19T{hour:02d}:00:00-07:00",
+                             "arr": f"2026-09-19T{hour:02d}:10:00-07:00"})
+        return {"trainNum": "4", "routeName": "Southwest Chief", "origName": "Los Angeles Union",
+                "destName": "Chicago Union Station", "trainState": "Active", "velocity": 61.2,
+                "stations": stations}
+
+    def journey(self, statuses, now="2026-09-19T12:30:00-07:00"):
+        onboard = community("onboard")
+        return onboard.journey(self.run_for(statuses), datetime.fromisoformat(now))
+
+    def test_the_next_stop_is_the_first_one_still_ahead(self):
+        ride = self.journey(["Departed", "Station", "Enroute", "Enroute"])
+        self.assertEqual(ride["next"], 2)
+        self.assertEqual(ride["stops"][2]["name"], "Stop 2")     # "Station" trimmed off the end
+        self.assertEqual(ride["to"], "Chicago")
+        self.assertEqual(ride["late"], 10)
+        self.assertTrue(ride["moving"])
+
+    def test_the_train_sits_between_the_stop_behind_and_the_one_ahead(self):
+        # Behind it left at 11:10, ahead is due 12:10: at 12:30 the leg is done.
+        ride = self.journey(["Departed", "Station", "Enroute"], now="2026-09-19T11:40:00-07:00")
+        self.assertGreater(ride["progress"], .4)
+        self.assertLess(ride["progress"], .6)
+
+    def test_a_train_that_has_not_called_anywhere_starts_at_its_first_stop(self):
+        ride = self.journey(["Enroute", "Enroute"])
+        self.assertEqual(ride["next"], 0)
+        self.assertEqual(ride["progress"], 0.0)
+
+    def test_a_train_that_has_finished_points_at_its_last_stop(self):
+        ride = self.journey(["Departed", "Departed", "Station"])
+        self.assertEqual(ride["next"], 2)
+
+    def test_a_run_with_no_stops_is_not_a_ride(self):
+        onboard = community("onboard")
+        self.assertIsNone(onboard.journey({"stations": []}))
+
+    def test_station_names_lose_what_every_station_has(self):
+        onboard = community("onboard")
+        self.assertEqual(onboard.short("Los Angeles Union"), "Los Angeles")
+        self.assertEqual(onboard.short("New York Penn Station"), "New York")
+        self.assertEqual(onboard.short("Emeryville"), "Emeryville")
+        self.assertEqual(onboard.short("Oakland-Jack London Square, CA"), "Oakland Jack London Square")
+
+
 class SurfTideTests(unittest.TestCase):
     """The sea sits where the tide puts it: 0 at dead low, 1 at dead high."""
 

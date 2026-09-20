@@ -9,6 +9,13 @@
       "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/departures"
     },
     {
+      "id": "onboard",
+      "name": "Onboard",
+      "author": "RackTicker",
+      "description": "The strip map above the carriage doors, for a train that is really running: the line, the stops, the train sliding along it, and how long to the next one.",
+      "url": "https://github.com/costamesatechsolutions/rackticker/tree/main/community/onboard"
+    },
+    {
       "id": "tanks",
       "name": "Tanks",
       "author": "RackTicker",

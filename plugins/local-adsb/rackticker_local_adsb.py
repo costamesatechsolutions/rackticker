@@ -15,6 +15,52 @@ from PIL import Image, ImageDraw
 from app.core.airlines import airline
 from rackticker import Flight, Plugin, Provider, Snapshot, offload
 
+# An aeroplane does not transmit what it is: dump1090 keeps a database of airframes
+# beside its web page and its browser joins the two. Joining it here means the type
+# is known the moment a plane appears, with no network and no waiting.
+DATABASE_DIRS = (Path("/usr/share/skyaware/html/db"), Path("/usr/share/dump1090-fa/html/db"),
+                 Path("/usr/local/share/skyaware/html/db"), Path("/usr/share/readsb/html/db"))
+
+
+class Airframes:
+    """The receiver's own aircraft database, read a little at a time.
+
+    It is split into files by the start of the hex code, each holding the rest of
+    the code; 8 MB on disk, a few small files in memory."""
+
+    def __init__(self, folders=DATABASE_DIRS):
+        self.folders = tuple(folders)
+        self.tables = {}
+
+    def _table(self, prefix):
+        if prefix not in self.tables:
+            table = {}
+            for folder in self.folders:
+                try:
+                    table = json.loads((folder / f"{prefix}.json").read_text())
+                    break
+                except (OSError, ValueError):
+                    continue
+            if len(self.tables) > 48:
+                self.tables.pop(next(iter(self.tables)))
+            self.tables[prefix] = table
+        return self.tables[prefix]
+
+    def find(self, identity):
+        """{"icao_type", "registration"} for one hex code, or {} if it is not in there."""
+        code = str(identity or "").upper()
+        if len(code) != 6 or any(c not in "0123456789ABCDEF" for c in code):
+            return {}
+        for cut in (1, 2, 3, 4):
+            entry = self._table(code[:cut]).get(code[cut:])
+            if isinstance(entry, dict) and (entry.get("t") or entry.get("r")):
+                return {"icao_type": str(entry.get("t") or "").strip().upper(),
+                        "registration": str(entry.get("r") or "").strip().upper()}
+        return {}
+
+
+airframes = Airframes()
+
 # Free, key-free community aggregators with the readsb aircraft JSON format.
 NETWORK_FEEDS = (("adsb_lol", "https://api.adsb.lol/v2/point/{lat}/{lon}/{nm}"),
                  ("adsb_fi", "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{nm}"))
@@ -180,6 +226,10 @@ def select_aircraft(data, receiver, settings, now, collect=None):
             # Network feeds (and newer readsb builds) include type and registration.
             kind = str(item.get("t") or "").strip().upper()
             registration = str(item.get("r") or "").strip().upper()
+            if not kind or not registration:   # a receiver reports only what was transmitted
+                known = airframes.find(identity)
+                kind = kind or known.get("icao_type", "")
+                registration = registration or known.get("registration", "")
             flight = Flight(callsign, kind if 2 <= len(kind) <= 4 and kind.isalnum() else "ADS-B", "---", "---",
                             optional_number(item.get("alt_baro"), -2000, 100000),
                             optional_number(item.get("gs"), 0, 2000), distance, bearing,
@@ -366,7 +416,12 @@ class LocalADSB(Provider):
         spare = results[1] if not isinstance(results[1], Exception) else {}
         aircraft = facts.get("aircraft") or {}
         if spare and not str(aircraft.get("icao_type") or "").strip():
-            facts["aircraft"] = {**aircraft, **{k: v for k, v in spare.items() if v}}
+            aircraft = {**aircraft, **{k: v for k, v in spare.items() if v}}
+            facts["aircraft"] = aircraft
+        if not str(aircraft.get("icao_type") or "").strip():
+            local = airframes.find(identity)
+            if local:
+                facts["aircraft"] = {**aircraft, **local}
         payload = {"response": facts} if facts else None
         # A good answer keeps for hours; a miss or a timeout is asked again in two minutes.
         complete = "aircraft" in facts and ("flightroute" in facts or not airline_flight)

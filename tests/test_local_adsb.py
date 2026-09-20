@@ -19,6 +19,40 @@ adsb = util.module_from_spec(spec)
 spec.loader.exec_module(adsb)
 
 
+class AirframeDatabaseTests(unittest.TestCase):
+    """The receiver's own database: a plane does not transmit what it is."""
+
+    def setUp(self):
+        import json, tempfile
+        from pathlib import Path
+        self.folder = Path(tempfile.mkdtemp())
+        (self.folder / "A.json").write_text(json.dumps({"children": ["AC"], "6EE47": {"t": "B738"}}))
+        (self.folder / "AC.json").write_text(json.dumps({"5E6E": {"t": "B38M", "desc": "L2J"}}))
+        (self.folder / "4B.json").write_text(json.dumps({"1919": {"r": "HB-JND", "t": "B77W"}}))
+        self.db = adsb.Airframes((self.folder,))
+
+    def test_a_type_is_found_however_deep_its_file_is(self):
+        self.assertEqual(self.db.find("a6ee47")["icao_type"], "B738")     # one-character prefix
+        self.assertEqual(self.db.find("AC5E6E")["icao_type"], "B38M")     # two
+        self.assertEqual(self.db.find("4b1919"), {"icao_type": "B77W", "registration": "HB-JND"})
+
+    def test_an_aircraft_that_is_not_in_there_is_not_guessed_at(self):
+        self.assertEqual(self.db.find("abcdef"), {})
+
+    def test_nonsense_never_reaches_the_disk(self):
+        for bad in ("", None, "zz", "ac5e6", "ac5e6eff", "../../etc"):
+            self.assertEqual(self.db.find(bad), {})
+
+    def test_a_missing_database_is_not_an_error(self):
+        from pathlib import Path
+        self.assertEqual(adsb.Airframes((Path("/nowhere/db"),)).find("ac5e6e"), {})
+
+    def test_it_keeps_only_a_few_files_in_memory(self):
+        for n in range(200):
+            self.db.find(f"{n:06X}")
+        self.assertLessEqual(len(self.db.tables), 49)
+
+
 class ADSBTests(unittest.TestCase):
     def setUp(self):
         self.settings = copy.deepcopy(adsb.plugin.defaults)

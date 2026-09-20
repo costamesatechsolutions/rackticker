@@ -115,6 +115,31 @@ class NewTickerTests(unittest.TestCase):
                                 Message(), SystemStatus())
         self.assertIsNotNone(validate_frame(FINANCE.FinanceModule().render(context)).getbbox())
 
+    def test_the_stock_tape_sits_out_the_weekend(self):
+        """Friday's closing prices are not news on a Sunday."""
+        from zoneinfo import ZoneInfo
+        registry = PluginRegistry(); registry.register(FINANCE.plugin)
+        module = FINANCE.FinanceModule()
+        row = {"symbol": "NVDA", "price": 1, "change": 1, "label": "NVDA", "closes": [1, 2]}
+        snapshots = {"finance": Snapshot({"indices": [row], "tape": [row]})}
+        ny = ZoneInfo("America/New_York")
+
+        def shown(when, setting):
+            config = validate_config({"plugins": {"finance": {"when": setting}},
+                                      "modules": {"finance": {"enabled": True}},
+                                      "playlist": [{"id": "finance", "module": "finance"}]}, registry)
+            return module.available(RenderContext(when, 0, config, snapshots, Message(), SystemStatus()))
+
+        saturday = datetime(2026, 9, 19, 12, 0, tzinfo=ny)
+        wednesday_open = datetime(2026, 9, 16, 12, 0, tzinfo=ny)
+        wednesday_night = datetime(2026, 9, 16, 23, 0, tzinfo=ny)
+        self.assertFalse(shown(saturday, "weekdays"))
+        self.assertTrue(shown(wednesday_open, "weekdays"))
+        self.assertTrue(shown(wednesday_night, "weekdays"))   # a weekday evening still counts
+        self.assertFalse(shown(wednesday_night, "open"))      # unless you asked for trading hours
+        self.assertTrue(shown(wednesday_open, "open"))
+        self.assertTrue(shown(saturday, "always"))            # or for it never to go away
+
     def test_weather_normalizes_and_renders_graphic(self):
         payload = {"current": {"temperature_2m": 72.4, "apparent_temperature": 71,
                                "weather_code": 61, "wind_speed_10m": 8.2},

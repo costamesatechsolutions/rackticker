@@ -176,6 +176,62 @@ class BartTests(unittest.TestCase):
         self.assertTrue(any(sum(c) < 120 for c in ink))     # and dark letters on it
 
 
+class MetrolinkTests(unittest.TestCase):
+    """Metrolink answers for every station at once, in milliseconds since the epoch."""
+
+    ROWS = [
+        {"PlatformName": "ARTIC", "TrainDesignation": "M1860", "RouteCode": "IEOC LINE",
+         "TrainDestination": "San Bernardino - Downtown", "TrainMovementTime": "/Date(1789876140000)/",
+         "CalcTrainMovementTime": "/Date(1789876440000)/", "CalculatedStatus": "ON TIME",
+         "FormattedTrackDesignation": "Track 1"},
+        {"PlatformName": "ARTIC", "TrainDesignation": "A591S", "RouteCode": "PAC SURF",
+         "TrainDestination": "LA Union Station", "TrainMovementTime": "/Date(1789877580000)/",
+         "CalcTrainMovementTime": "/Date(0)/", "CalculatedStatus": "CANCELLED",
+         "FormattedTrackDesignation": "Track 2"},
+        {"PlatformName": "FULLERTON", "TrainDesignation": "M1754", "RouteCode": "91/PV Line",
+         "TrainDestination": "South Perris", "TrainMovementTime": "/Date(1789876140000)/",
+         "CalcTrainMovementTime": "/Date(1789876140000)/", "CalculatedStatus": "ON TIME",
+         "FormattedTrackDesignation": "Track 3"},
+    ]
+
+    def board(self, platform):
+        import asyncio
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        departures = community("departures")
+        departures._metrolink_cache.update(at=0.0, rows=None)
+        zone = ZoneInfo("America/Los_Angeles")
+
+        class Reply:
+            def raise_for_status(self): pass
+            async def json(self, content_type=None): return MetrolinkTests.ROWS
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+
+        class Session:
+            def get(self, *args, **kwargs): return Reply()
+
+        return asyncio.run(departures.metrolink(Session(), platform, datetime.now(zone), zone))
+
+    def test_only_the_trains_calling_at_this_platform(self):
+        self.assertEqual([row["number"] for row in self.board("FULLERTON")], ["M1754"])
+
+    def test_the_line_keeps_its_own_name_and_the_track_loses_the_word(self):
+        row = self.board("ARTIC")[0]
+        self.assertEqual(row["kind"], "IEOC")
+        self.assertEqual(row["track"], "1")
+        self.assertEqual(row["delay"], 5)
+        self.assertEqual(row["destination"], "San Bernardino")   # not "- Downtown" as well
+
+    def test_a_placeholder_time_is_not_a_train_twenty_seven_years_late(self):
+        cancelled = self.board("ARTIC")[1]
+        self.assertEqual(cancelled["delay"], 0)
+        self.assertTrue(cancelled["cancelled"])
+
+    def test_a_train_finishing_its_run_here_is_not_a_departure(self):
+        self.assertEqual([row["number"] for row in self.board("LAUS")], [])
+
+
 class SurfTideTests(unittest.TestCase):
     """The sea sits where the tide puts it: 0 at dead low, 1 at dead high."""
 

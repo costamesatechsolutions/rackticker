@@ -43,14 +43,33 @@ STATIONS = {
     "sf_powell": ("Powell St", "San Francisco", "America/Los_Angeles", "bart", "POWL", "bart"),
     "oakland_12th": ("12th St Oakland", "Oakland", "America/Los_Angeles", "bart", "12TH", "bart"),
     "berkeley": ("Downtown Berkeley", "Berkeley", "America/Los_Angeles", "bart", "DBRK", "bart"),
+    # Metrolink: Southern California's commuter lines. Its feed carries the Amtrak
+    # trains that call at the same platforms, so these boards show both.
+    "la_union_metrolink": ("LA Union Station", "Los Angeles", "America/Los_Angeles", "metrolink", "LAUS", "metrolink"),
+    "anaheim_metrolink": ("Anaheim ARTIC", "Anaheim", "America/Los_Angeles", "metrolink", "ARTIC", "metrolink"),
+    "fullerton": ("Fullerton", "Fullerton", "America/Los_Angeles", "metrolink", "FULLERTON", "metrolink"),
+    "santa_ana": ("Santa Ana", "Santa Ana", "America/Los_Angeles", "metrolink", "SANTA ANA", "metrolink"),
+    "irvine": ("Irvine", "Irvine", "America/Los_Angeles", "metrolink", "IRVINE", "metrolink"),
+    "san_juan_capistrano": ("San Juan Capistrano", "San Juan Capistrano", "America/Los_Angeles",
+                            "metrolink", "SAN JUAN CAPISTRANO", "metrolink"),
+    "riverside": ("Riverside Downtown", "Riverside", "America/Los_Angeles", "metrolink",
+                  "RIVERSIDE-DOWNTOWN", "metrolink"),
+    "burbank_airport": ("Burbank Airport", "Burbank", "America/Los_Angeles", "metrolink",
+                        "BURBANK-AIRPORT-SOUTH", "metrolink"),
 }
 EURO_TOUR = ("budapest_keleti", "roma_termini", "milano_centrale", "firenze_smn", "venezia_sl",
              "napoli_centrale", "zurich_hb")
 US_TOUR = ("los_angeles_union", "anaheim_artic", "san_diego", "seattle_king_street", "chicago_union",
            "new_york_penn", "washington_union", "boston_south",
            "sf_embarcadero", "sf_powell", "oakland_12th", "berkeley")
-TOURS = {"tour": EURO_TOUR, "usa": US_TOUR, "world": EURO_TOUR + US_TOUR}
-TOUR = EURO_TOUR + US_TOUR   # the order boards are shown in, whichever are loaded
+SOCAL_TOUR = ("la_union_metrolink", "anaheim_metrolink", "fullerton", "santa_ana", "irvine",
+              "san_juan_capistrano", "riverside", "burbank_airport")
+TOURS = {"tour": EURO_TOUR, "usa": US_TOUR, "socal": SOCAL_TOUR, "world": EURO_TOUR + US_TOUR + SOCAL_TOUR}
+TOUR = EURO_TOUR + US_TOUR + SOCAL_TOUR   # the order boards are shown in, whichever are loaded
+# Metrolink names a stop by its platform code; this reads it back to know when a
+# train on the board is finishing its run here rather than passing through.
+STATIONS_BY_PLATFORM = {code: name for name, _city, _zone, source, code, _style in STATIONS.values()
+                        if source == "metrolink"}
 
 WHITE, YELLOW, AMBER, RED, GREEN = (236, 238, 236), (255, 206, 40), (255, 150, 20), (255, 60, 45), (80, 220, 120)
 GREY, DIM = (150, 156, 160), (70, 74, 78)
@@ -67,6 +86,10 @@ STYLES = {
                "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED", "track_word": "track",
                "train": ((0, 70, 150), (225, 228, 232), (200, 30, 40))},
     # BART: each line keeps its own colour, which is how the system is read.
+    # Metrolink: the deep blue of the trains, with Amtrak's trains on the same board.
+    "metrolink": {"time": WHITE, "dest": WHITE, "track": (0, 70, 140), "accent": (0, 90, 165), "mixed": True,
+                  "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED",
+                  "track_word": "track", "train": ((0, 80, 160), (235, 238, 240), (215, 60, 40))},
     "bart": {"time": WHITE, "dest": WHITE, "track": (40, 44, 52), "accent": (30, 90, 180), "mixed": True,
              "departures": ("Departures", ""), "late": "late", "cancelled": "CANCELLED", "track_word": "platform",
              "train": ((40, 90, 190), (225, 228, 232), (240, 240, 240))},
@@ -92,6 +115,9 @@ ANNOUNCE = {
     "amtrak": ("ATTENTION", "Train {train} to {dest}, the {time} departure, is running {delay} minutes late",
                "Train {train} to {dest}, the {time} departure, will depart from track {track}",
                "Train {train} to {dest}, the {time} departure, is cancelled"),
+    "metrolink": ("ATTENTION", "The {time} {train} to {dest} is running {delay} minutes late",
+                  "The {time} {train} to {dest} will use track {track}",
+                  "The {time} {train} to {dest} has been cancelled"),
     "bart": ("ATTENTION", "The {time} {train} train to {dest} is running {delay} minutes late",
              "The {time} {train} train to {dest} departs from platform {track}",
              "The {time} {train} train to {dest} has been cancelled"),
@@ -346,7 +372,70 @@ async def bart(session, code, when, zone):
     return rows
 
 
-SOURCES = {"mav": mav, "trenitalia": trenitalia, "sbb": sbb, "amtrak": amtrak, "bart": bart}
+METROLINK_URL = "https://rtt.metrolinktrains.com/StationScheduleList.json"
+# Metrolink's line names as its own signs abbreviate them; its feed also carries
+# the Amtrak trains calling at the same platforms.
+METRO_LINES = {"IEOC LINE": "IEOC", "SB LINE": "SB", "91/PV Line": "91/PV", "ARROW": "ARROW",
+               "AV LINE": "AV", "VC LINE": "VC", "OC LINE": "OC", "RIVERSIDE LINE": "RIV",
+               "PAC SURF": "SURF", "CST STRLT": "STAR"}
+_metrolink_cache = {"at": 0.0, "rows": None}
+
+
+def _metro_time(value, zone):
+    """Metrolink sends /Date(1789876140000)/ in milliseconds since the epoch."""
+    digits = re.sub(r"[^0-9-]", "", str(value or ""))
+    if not digits:
+        return None
+    try:
+        return datetime.fromtimestamp(int(digits) / 1000, zone)
+    except (ValueError, OSError, OverflowError):
+        return None
+
+
+def _metro_name(name):
+    name = str(name or "").split(" - ")[0].strip()
+    return {"LA Union Station": "Los Angeles"}.get(name, name)
+
+
+async def metrolink(session, platform, when, zone):
+    """Metrolink departures. One request answers for every station on the system,
+    so a tour of them all costs the same as one."""
+    loop_now = asyncio.get_running_loop().time()
+    rows = _metrolink_cache["rows"]
+    if rows is None or loop_now - _metrolink_cache["at"] > 45:
+        async with session.get(METROLINK_URL, headers=UA) as response:
+            response.raise_for_status()
+            rows = await response.json(content_type=None)
+        _metrolink_cache.update(at=loop_now, rows=rows)
+    here = _metro_name(STATIONS_BY_PLATFORM.get(platform, ""))
+    board = []
+    for row in rows or []:
+        if str(row.get("PlatformName") or "") != platform:
+            continue
+        planned = _metro_time(row.get("TrainMovementTime"), zone)
+        if not planned:
+            continue
+        destination = _metro_name(row.get("TrainDestination"))
+        if here and destination == here:
+            continue      # this train finishes here: an arrival, not a departure
+        expected = _metro_time(row.get("CalcTrainMovementTime"), zone)
+        drift = round((expected - planned).total_seconds() / 60) if expected else 0
+        # A placeholder timestamp once read as a train twenty-seven years late.
+        if abs(drift) > 180:
+            drift = 0
+        status = str(row.get("CalculatedStatus") or "").upper()
+        route = str(row.get("RouteCode") or "")
+        board.append({"time": planned, "delay": drift,
+                      "kind": METRO_LINES.get(route, route.split(" ")[0][:5].upper()),
+                      "number": str(row.get("TrainDesignation") or ""), "name": route,
+                      "destination": destination,
+                      "track": str(row.get("FormattedTrackDesignation") or "").replace("Track", "").strip(),
+                      "moved": False, "cancelled": "CANCEL" in status})
+    return board
+
+
+SOURCES = {"mav": mav, "trenitalia": trenitalia, "sbb": sbb, "amtrak": amtrak, "bart": bart,
+           "metrolink": metrolink}
 
 
 class Boards(Provider):

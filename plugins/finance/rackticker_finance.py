@@ -323,6 +323,20 @@ class FinanceModule(Module):
     def refresh_interval(self, context):
         return 1 / context.config["display"]["fps"]
 
+    def available(self, context):
+        """A tape of Friday's closing prices is not news on a Sunday."""
+        snap = context.snapshots.get(self.name)
+        if not (snap and snap.data):
+            return False
+        when = context.config["plugins"][self.name].get("when", "weekdays")
+        state = market_state(context.now)
+        if when == "open" and state not in ("LIVE", "PRE", "AFTER"):
+            return False
+        if when == "weekdays" and state == "CLOSED" and context.now.astimezone(
+                ZoneInfo("America/New_York")).weekday() >= 5:
+            return False
+        return True
+
     def _tape(self, data):
         # The provider hands over a new dict only when quotes refresh, so the
         # identity check avoids re-hashing every sparkline point each frame.
@@ -427,9 +441,11 @@ def validate(settings):
 plugin = Plugin("finance", "Stock tape", module=FinanceModule,
                 provider=FinanceProvider,
                 defaults={"mode": "auto", "symbols": "NVDA,AAPL,TSLA,MSFT,AMZN,META",
-                          "refresh_seconds": 60},
+                          "when": "weekdays", "refresh_seconds": 60},
                 validate_settings=validate, migrate_settings=migrate,
-                choices={"mode": ("auto", "custom")},
+                choices={"mode": ("auto", "custom"), "when": ("weekdays", "open", "always")},
                 help={"mode": "auto adds the day's top gainers, losers and most active",
+                      "when": "weekdays skips Saturday and Sunday; open shows it only while the "
+                              "market is trading, including pre- and after-hours",
                       "symbols": "Your watchlist, comma separated (stocks, ETFs, BTC-USD, CL=F…)"},
     ui={"symbols": {"type": "tags", "label": "Watchlist"}, "refresh_seconds": {"advanced": True}})

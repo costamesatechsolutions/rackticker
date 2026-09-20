@@ -15,6 +15,12 @@ a plugin, every bundled data source is free and needs no key, and nothing needs 
 cloud account. Run it on your computer first: the browser emulator shows the exact
 pixels the panels will.
 
+**Write your own screen.** Every screen here is a plugin, and yours installs the same
+way: a folder with a `plugin.json` and one Python file, running in its own sandboxed
+process. Fork the **[plugin starter](https://github.com/costamesatechsolutions/rackticker-plugin-starter)**
+— a complete screen in about forty lines — or run `python -m app.dev new my_plugin`.
+See [Make a screen](#make-a-screen) and [docs/plugins.md](docs/plugins.md).
+
 ## Screens
 
 | Screen | What it shows |

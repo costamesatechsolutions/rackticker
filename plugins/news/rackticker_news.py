@@ -181,15 +181,27 @@ class NewsProvider(Provider):
             await self.session.close()
 
 
-def _age(published):
+def _age(published, long=False):
     if not published:
         return ""
     minutes = max(0, int((datetime.now(timezone.utc) - published).total_seconds() // 60))
     if minutes < 60:
-        return f"{minutes}M"
-    if minutes < 48 * 60:
-        return f"{minutes // 60}H"
-    return f"{minutes // 1440}D"
+        age = f"{minutes}M"
+    elif minutes < 48 * 60:
+        age = f"{minutes // 60}H"
+    else:
+        age = f"{minutes // 1440}D"
+    # "9H" beside a clock reads as a time of day; "9H AGO" does not.
+    return f"{age} AGO" if long else age
+
+
+def _caption(row, room):
+    """The outlet and how old the story is, as fully as there is room to say it."""
+    for long in (True, False):
+        text = " ".join(part for part in (row.get("outlet", ""), _age(row["published"], long)) if part)
+        if tiny_width(text) <= room:
+            return text
+    return ""
 
 
 @lru_cache(maxsize=1)
@@ -317,9 +329,9 @@ class NewsModule(Module):
             x = glint + (8 - y) // 3
             if 0 <= x <= label_right:
                 frame.putpixel((x, y), tuple(min(255, c + 90) for c in frame.getpixel((x, y))))
-        meta = " ".join(part for part in (row.get("outlet", ""), _age(row["published"])) if part)
-        if label_right + 4 + tiny_width(meta) <= 128:
-            draw_tiny(frame, meta, 128 - tiny_width(meta), 2, MUTED)
+        meta = _caption(row, 127 - label_right - 4)
+        if meta:
+            draw_tiny(frame, meta, 127 - tiny_width(meta), 2, MUTED)
         draw_text(frame, row["title"], crawl_once_x(max(0.0, story_t - READ_PAUSE), speed, ENTRY_X), 11, WHITE, 2, True,
                   mixed=True)
 
@@ -338,9 +350,8 @@ class NewsModule(Module):
         centre = 64 - x
         current = next((rows[index] for start, end, index in spans if start <= centre < end), None)
         if current:
-            caption = " ".join(part for part in (current.get("outlet", ""), _age(current["published"])) if part)
-            room = 128 - 2 * (max(tiny_width("NEWS"), tiny_width(clock)) + 4)
-            if caption and tiny_width(caption) <= room:
+            caption = _caption(current, 128 - 2 * (max(tiny_width("NEWS"), tiny_width(clock)) + 4))
+            if caption:
                 draw_tiny(frame, caption, 64 - tiny_width(caption) // 2, 2, channel_color(current["channel"]))
 
 

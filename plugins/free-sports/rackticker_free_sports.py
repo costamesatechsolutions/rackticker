@@ -488,7 +488,10 @@ class FreeSports(Provider):
                 item["game"] = replace(item["game"], extra=extra)
 
     async def _raw(self, url):
-        async with self.session.get(url) as response:
+        # A scoreboard is a big document and the Pi's Wi-Fi is slow; the session's
+        # short default is for logos. The provider as a whole gets 6 s, and logos
+        # after this take at most 1.7.
+        async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as response:
             response.raise_for_status()
             return await response.read()
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+import unittest.mock
 import zipfile
 
 from app.core.installer import InstallError, Installer, parse_github, safe_extract
@@ -199,3 +200,107 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
                         yield piece
         self.assertEqual(await read_limited(Slow, 100), b"PK\x03\x04rest")
         self.assertEqual(await read_limited(Slow, 3), b"PK\x03")
+
+
+class QuietProcess:
+    """Just enough of a subprocess for the watchdog to look at."""
+    returncode = None
+    pid = 0
+
+
+class WatchdogTests(unittest.IsolatedAsyncioTestCase):
+    """A hang restarts every plugin in the shared process, so it takes real silence to declare one."""
+
+    def setUp(self):
+        from app.core import sandbox
+        self.sandbox = sandbox
+        self.process = sandbox.PluginProcess(tempfile.gettempdir())
+        self.killed = []
+        self.process.process = QuietProcess()
+        self.process.kill = lambda host, reason: self.killed.append((host.name, reason))
+        self.host = type("Host", (), {"name": "slow", "pending_at": time.monotonic() - 60})()
+        self.process.hosts = {"slow": self.host}
+        for name, value in (("HANG_SECONDS", .3), ("HESITATE_SECONDS", .4)):
+            patcher = unittest.mock.patch.object(sandbox, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for name in ("resident_mb",):
+            patch = unittest.mock.patch.object(sandbox, name, lambda pid: None)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    async def test_a_process_that_is_answering_others_is_not_hung(self):
+        self.process.heard = time.monotonic()
+        self.assertFalse(await self.process.inspect(self.process.process))
+        self.assertEqual(self.killed, [])
+        self.assertIsNone(self.host.pending_at, "the lost request was not asked for again")
+
+    async def test_a_silent_process_with_a_request_open_is_stopped(self):
+        self.process.heard = time.monotonic() - 60
+        self.assertTrue(await self.process.inspect(self.process.process))
+        self.assertEqual(self.killed, [("slow", "stopped responding")])
+
+    async def test_replies_that_arrive_while_the_watchdog_hesitates_save_the_process(self):
+        self.process.heard = time.monotonic() - 60
+
+        async def late_reply():
+            await asyncio.sleep(.2)         # the display was stalled; the reader catches up
+            self.process.heard = time.monotonic()
+        asyncio.ensure_future(late_reply())
+        self.assertFalse(await self.process.inspect(self.process.process))
+        self.assertEqual(self.killed, [])
+
+
+class SmoothCrawlTests(unittest.IsolatedAsyncioTestCase):
+    """An installed plugin's crawl reaches the panel one pixel per frame, with no black frame between screens."""
+
+    async def asyncSetUp(self):
+        import os
+        os.environ["RACKTICKER_SANDBOX"] = "shared"
+        self.addCleanup(os.environ.pop, "RACKTICKER_SANDBOX", None)
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        await Installer(root / "plugins").from_folder(Path(__file__).parent / "fixtures" / "crawler")
+        self.app = create_app(root / "config.json")
+        self.runtime, self.store = self.app[RUNTIME], self.app[STORE]
+        self.manager = self.app[plugins_api.MANAGER]
+        await self.runtime.start()
+        await plugins_api.enable(self.runtime, self.store, self.manager, "crawler")
+        self.host = self.runtime.sandboxes["crawler"]
+        deadline = time.monotonic() + 20
+        while self.host.state != "running" and time.monotonic() < deadline:
+            await asyncio.sleep(.05)
+        self.runtime.config["display"]["transition"] = "cut"
+
+    async def asyncTearDown(self):
+        await self.runtime.close()
+        self.directory.cleanup()
+
+    async def watch(self, seconds):
+        """Every distinct picture the panel is sent for a while: (pixel x of the crawler or None, is black)."""
+        seen, last, end = [], -1, time.monotonic() + seconds
+        while time.monotonic() < end:
+            if self.runtime.frame_count != last:
+                last = self.runtime.frame_count
+                frame = self.runtime.frame
+                lit = [x for x in range(128) if frame.getpixel((x, 5)) != (0, 0, 0)]
+                seen.append((lit[0] if lit else None, frame.getbbox() is None))
+            await asyncio.sleep(.002)
+        return seen
+
+    async def test_the_crawl_advances_one_pixel_a_frame(self):
+        self.runtime.preview("crawler")
+        await asyncio.sleep(.5)
+        seen = [x for x, _ in await self.watch(4) if x is not None]
+        steps = [(b - a) % 128 for a, b in zip(seen, seen[1:])]
+        self.assertGreater(len(steps), 80)
+        even = sum(step == 1 for step in steps) / len(steps)
+        self.assertGreater(even, .95, f"the crawl hitched: {sorted(set(steps))}")
+
+    async def test_arriving_at_an_installed_screen_never_flashes_black(self):
+        self.runtime.preview("clock")
+        await asyncio.sleep(.3)
+        self.runtime.preview("crawler")
+        frames = await self.watch(1.2)
+        self.assertTrue(frames)
+        self.assertFalse(any(black for _, black in frames), "a blank frame was shown between screens")

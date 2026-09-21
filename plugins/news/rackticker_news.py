@@ -37,6 +37,8 @@ ENTRY_X = 4
 READ_PAUSE = 1.6
 BUMPER_SECONDS = 1.15
 ZIPPER_BATCH = 4
+WARM_PAUSE = .12
+BREAKING_RED = (235, 30, 30)
 MAX_ROWS = 64
 OLD_DEFAULT = "https://feeds.bbci.co.uk/news/technology/rss.xml"
 DEFAULT_CHANNELS = "|".join((
@@ -138,6 +140,7 @@ class NewsProvider(Provider):
         self.session = None
         self.rows = []
         self.cache_until = 0.0
+        self.warming = None
 
     async def _channel(self, label, url):
         async with self.session.get(url) as response:
@@ -168,23 +171,49 @@ class NewsProvider(Provider):
                         seen.add(row["title"])
                         rows.append(row)
                 self.rows = rows[:MAX_ROWS]
-                # Build the zipper strips here, on the provider thread, not mid-render.
-                for start in range(0, len(self.rows), ZIPPER_BATCH):
-                    zipper_strip(tuple((row["channel"], row["title"]) for row in self.rows[start:start + ZIPPER_BATCH]))
+                self._warm_later(self.rows)
             elif not self.rows:
                 raise ConnectionError(str(next(iter(results), "No news feeds configured")))
             self.cache_until = now + settings["refresh_seconds"]
         return Snapshot({"items": self.rows}, source="rss", metadata={"rotation_size": len(self.rows)})
 
+    def _warm_later(self, rows):
+        """Draw the zipper strips ahead of their turn, but gently. All sixteen at once kept
+        the interpreter busy for over a second on a Pi and the crawl on screen stuttered
+        (and every other feed's reply queued up behind it); one every so often is not felt."""
+        if self.warming is not None:
+            self.warming.cancel()
+        self.warming = asyncio.get_running_loop().create_task(self._warm(list(rows)))
+
+    async def _warm(self, rows):
+        for start in range(0, len(rows), ZIPPER_BATCH):
+            zipper_strip(tuple((row["channel"], row["title"]) for row in rows[start:start + ZIPPER_BATCH]))
+            await asyncio.sleep(WARM_PAUSE)
+
     async def close(self):
+        if self.warming is not None:
+            self.warming.cancel()
         if self.session is not None and not self.session.closed:
             await self.session.close()
 
 
-def _age(published, long=False):
+def age_minutes(published, now=None):
+    if not published:
+        return None
+    return max(0, int(((now or datetime.now(timezone.utc)) - published).total_seconds() // 60))
+
+
+def breaking(row, now=None):
+    """A story that is less than a minute old is not "0M AGO": it is breaking."""
+    return age_minutes(row.get("published"), now) == 0
+
+
+def _age(published, long=False, now=None):
     if not published:
         return ""
-    minutes = max(0, int((datetime.now(timezone.utc) - published).total_seconds() // 60))
+    minutes = age_minutes(published, now)
+    if minutes == 0:
+        return "BREAKING"
     if minutes < 60:
         age = f"{minutes}M"
     elif minutes < 48 * 60:
@@ -195,13 +224,30 @@ def _age(published, long=False):
     return f"{age} AGO" if long else age
 
 
-def _caption(row, room):
+def _caption(row, room, now=None):
     """The outlet and how old the story is, as fully as there is room to say it."""
+    if breaking(row, now):
+        # The chip already says BREAKING; the caption says who reported it.
+        text = row.get("outlet", "")
+        return text if tiny_width(text) <= room else ""
     for long in (True, False):
-        text = " ".join(part for part in (row.get("outlet", ""), _age(row["published"], long)) if part)
+        text = " ".join(part for part in (row.get("outlet", ""), _age(row["published"], long, now)) if part)
         if tiny_width(text) <= room:
             return text
     return ""
+
+
+def flashing(t):
+    """Two beats a second: the lamp on a breaking story."""
+    return int(t * 2) % 2 == 0
+
+
+def caption_colour(row, t=0.0, now=None):
+    """Fresh stories glow; old ones sit back."""
+    minutes = age_minutes(row.get("published"), now)
+    if minutes is not None and minutes <= 15:
+        return (255, 176, 20)
+    return MUTED
 
 
 @lru_cache(maxsize=1)
@@ -268,7 +314,8 @@ class NewsModule(Module):
                 return items
             items, previous = [], None
             for row in rows:
-                bumper = row["channel"] != previous
+                # A story that has just broken gets its own bumper, whatever channel it is on.
+                bumper = row["channel"] != previous or breaking(row)
                 previous = row["channel"]
                 seconds = (READ_PAUSE + (ENTRY_X + text_width(row["title"], 2, True)) / speed + .5
                            + (BUMPER_SECONDS if bumper else 0))
@@ -314,24 +361,26 @@ class NewsModule(Module):
             frame.paste(layer, (0, 0), mask)
 
     def _breaking(self, frame, row, bumper, local, duration, t, speed):
-        color = channel_color(row["channel"])
+        hot = breaking(row)
+        color = BREAKING_RED if hot else channel_color(row["channel"])
         if bumper and local < BUMPER_SECONDS:
-            self._bumper(frame, row["channel"], local, color)
+            self._bumper(frame, "BREAKING" if hot else row["channel"], local, color)
             return
         story_t = local - (BUMPER_SECONDS if bumper else 0)
         draw = ImageDraw.Draw(frame)
-        label = row["channel"]
+        label = "BREAKING" if hot else row["channel"]
         label_right = text_width(label) + 3
-        draw.rectangle((0, 0, label_right, 8), fill=color)
-        draw_text(frame, label, 2, 1, (255, 255, 255))
+        lit = not hot or flashing(t)
+        draw.rectangle((0, 0, label_right, 8), fill=color if lit else (255, 255, 255))
+        draw_text(frame, label, 2, 1, (255, 255, 255) if lit else color)
         glint = math.floor((t % 3.2) * 45) - 4
-        for y in range(9):
+        for y in range(0 if not hot else 9, 9):     # a glint on red would come out pink
             x = glint + (8 - y) // 3
             if 0 <= x <= label_right:
                 frame.putpixel((x, y), tuple(min(255, c + 90) for c in frame.getpixel((x, y))))
         meta = _caption(row, 127 - label_right - 4)
         if meta:
-            draw_tiny(frame, meta, 127 - tiny_width(meta), 2, MUTED)
+            draw_tiny(frame, meta, 127 - tiny_width(meta), 2, caption_colour(row))
         draw_text(frame, row["title"], crawl_once_x(max(0.0, story_t - READ_PAUSE), speed, ENTRY_X), 11, WHITE, 2, True,
                   mixed=True)
 
@@ -350,9 +399,14 @@ class NewsModule(Module):
         centre = 64 - x
         current = next((rows[index] for start, end, index in spans if start <= centre < end), None)
         if current:
-            caption = _caption(current, 128 - 2 * (max(tiny_width("NEWS"), tiny_width(clock)) + 4))
+            room = 128 - 2 * (max(tiny_width("NEWS"), tiny_width(clock)) + 4)
+            if breaking(current):
+                caption = "BREAKING" if tiny_width("BREAKING") <= room else ""
+                colour = BREAKING_RED if flashing(context.animation_time) else (255, 255, 255)
+            else:
+                caption, colour = _caption(current, room), channel_color(current["channel"])
             if caption:
-                draw_tiny(frame, caption, 64 - tiny_width(caption) // 2, 2, channel_color(current["channel"]))
+                draw_tiny(frame, caption, 64 - tiny_width(caption) // 2, 2, colour)
 
 
 def migrate(settings):

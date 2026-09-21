@@ -1,0 +1,13 @@
+[Unit]
+Description=RackTicker memory: compressed swap in RAM, so a page pushed out never waits for the SD card
+After=local-fs.target
+Before=rackticker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /opt/rackticker/current/deploy/rackticker-memory.sh start
+ExecStop=/bin/bash /opt/rackticker/current/deploy/rackticker-memory.sh stop
+
+[Install]
+WantedBy=multi-user.target

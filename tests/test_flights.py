@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 import unittest
 
+from PIL import Image
+
 from app.core.config import validate_config
 from app.core.models import Flight, Message, Snapshot, SystemStatus
 from app.modules.base import RenderContext
 from app.modules.flights import FlightModule, flight_number
 
 
-def row(callsign, distance, **extra):
+def row(callsign, distance=3.0, **extra):
     return {"id": callsign, "callsign": callsign, "distance": distance, "bearing": 90, "altitude": 5000, **extra}
 
 
@@ -44,15 +46,36 @@ class FlightScreenTests(unittest.TestCase):
         without = self.module.render(self.context(Snapshot(flight, source="local_adsb", metadata={"nearby": [bare]}), 1.0))
         self.assertNotEqual(with_leg, without.tobytes(), "the landing airport was not shown")
 
-    def test_the_bottom_line_turns_over_through_altitude_speed_and_distance(self):
-        rows = [row("UAL1", 3.4, type="B738", altitude=3500, speed=210, vertical_rate=-800, bearing=45,
-                    minutes_flown=95)]
-        first = self.module._more(rows[0], 1)[0]
-        second = self.module._more(rows[0], 2)[0]
-        self.assertIn("3,500FT", first)
-        self.assertIn("210KT", first)
-        self.assertIn("3.4MI NE", second)
-        self.assertIn("IN AIR 1H35M", second)
+    def flight_card(self, r, t=3.0):
+        flight = Flight(r["callsign"], r.get("type", "ADS-B"), "---", "---", r.get("altitude", 5000), 200, 3.0, 90, -500)
+        snap = Snapshot(flight, source="local_adsb", metadata={"nearby": [r]})
+        return self.module.render(self.context(snap, t))
+
+    def test_the_card_is_one_still_screen_nothing_scrolls_or_turns_over(self):
+        r = row("UAL1432", type="B738", origin="LAX", destination="DEN", cities=["LOS ANGELES", "DENVER"],
+                progress=.4, minutes_left=95, altitude=33000, speed=470)
+        settled = self.flight_card(r, 1.0).tobytes()
+        for t in (2.0, 4.6, 7.5, 9.9):
+            self.assertEqual(self.flight_card(r, t).tobytes(), settled, f"the card changed at {t}s")
+
+    def test_the_cities_are_named_in_full_and_the_bar_shows_how_far_along_it_is(self):
+        base = dict(type="B738", origin="LAX", destination="DEN", minutes_left=95)
+        named = self.flight_card(row("UAL1", cities=["LOS ANGELES", "DENVER"], progress=.4, **base)).tobytes()
+        codes = self.flight_card(row("UAL1", progress=.4, **base)).tobytes()
+        early = self.flight_card(row("UAL1", cities=["LOS ANGELES", "DENVER"], progress=.1, **base)).tobytes()
+        late = self.flight_card(row("UAL1", cities=["LOS ANGELES", "DENVER"], progress=.9, **base)).tobytes()
+        self.assertNotEqual(named, codes, "the cities were not shown")
+        self.assertNotEqual(early, late, "the bar did not move with the flight")
+
+    def test_a_long_city_name_is_shortened_at_a_hyphen_never_cut_mid_word(self):
+        from app.modules.flights import INFO_X, FlightModule
+        card = Image.new("RGB", (128, 32))
+        FlightModule._line(card, "Minneapolis-St Paul", "MSP", 9, (255, 255, 255))
+        # "Minneapolis" plus the code fits the 93 px; the whole name could not
+        self.assertLessEqual(card.getbbox()[2], 128)
+        with_all = Image.new("RGB", (128, 32))
+        FlightModule._line(with_all, "Minneapolis", "MSP", 9, (255, 255, 255))
+        self.assertEqual(card.tobytes(), with_all.tobytes())
 
     def test_only_a_near_aircraft_makes_the_screen_available(self):
         far = Snapshot(Flight("UAL1", "B738", "---", "---", 30000, 400, 25.0, 0, 0), source="local_adsb",

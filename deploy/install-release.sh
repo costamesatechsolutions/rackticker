@@ -114,9 +114,10 @@ switch_in() {  # $1: release folder to make current; units come from it
   done
   systemctl daemon-reload
   systemctl enable -q rackticker-matrix rackticker rackticker-update.path rackticker-selfheal.service rackticker-network \
-    rackticker-selfheal.timer rackticker-reset.path rackticker-identity.service 2>/dev/null || true
+    rackticker-selfheal.timer rackticker-reset.path rackticker-identity.service rackticker-memory 2>/dev/null || true
   systemctl start rackticker-update.path rackticker-reset.path rackticker-selfheal.timer 2>/dev/null || true
   systemctl restart rackticker-network 2>/dev/null || true   # pick up its new code
+  systemctl start rackticker-memory 2>/dev/null || true       # compressed swap, if this kernel has it
 }
 
 say "switching to $revision"

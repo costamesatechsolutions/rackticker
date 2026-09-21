@@ -19,6 +19,8 @@ RestartSec=5
 TimeoutStopSec=30
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+# Two malloc arenas, not one per thread: a threaded Python otherwise ends up much bigger than what it uses.
+Environment=MALLOC_ARENA_MAX=2
 # 512 MB on a Pi 3A+: keep the display inside a budget so a leak or a heavy plugin
 # can never take the machine (or ssh) down with it, and let it be killed before
 # anything else if memory ever does run out.

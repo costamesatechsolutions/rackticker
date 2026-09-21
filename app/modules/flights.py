@@ -1,14 +1,14 @@
 """Flights overhead, the way airport boards and flight-wall displays show them.
 
-Spotlight: one aircraft at a time with the airline's tail mark at full height,
-the airline and flight number, the route in big airport codes, and one detail
-line that flips between the far-end city, the aircraft and where to look.
-Board: with several aircraft about, a departures-style list of the nearest
-three comes first. An aircraft almost overhead flies across the panel before
-its spotlight.
+One card per aircraft, nearest first, and everything on it stays put: nothing
+scrolls and nothing turns over. The airline's mark at full height on the left; on
+the right the airline and flight number, the city it left, the city it is going to
+in full (the airport codes are small, at the end of each line) and a bar showing
+how far along it is, with the time left.
 """
 from functools import lru_cache
 from io import BytesIO
+import re
 
 from PIL import Image, ImageDraw
 
@@ -22,20 +22,19 @@ from app.core.renderer import new_frame, AMBER, GREEN, WHITE, MUTED
 LIVE_SOURCES = ("local_adsb", "adsb_network")
 INFO_X = 35
 INFO_WIDTH = 128 - INFO_X
-IDENTITY_SECONDS = 10.0     # the whole story on one card: logo, flight, route, aircraft, where
-FACT_SECONDS = 2.5          # the card's bottom line turns over through the facts
+IDENTITY_SECONDS = 10.0     # the whole story on one card; long enough to read it and look up
 SPOT_LIMIT = 4
 COMPASS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
-# The marker between the two airport codes. At seven pixels it was a cross with a
-# bump; a jet needs a nose, a tail fin and a wing before it reads as one.
-PLANE_ROWS = (".##..........",
-              "###..........",
-              "#############",
-              "........####.",
-              ".......####..",
-              "........##...")
+# The aircraft on the progress bar: seen from above, nose to the right. Five rows, so it
+# sits in the strip under the two city lines without touching either.
+PLANE_ROWS = ("..#....",
+              "..##...",
+              "#######",
+              "..##...",
+              "..#....")
 PLANE = tuple((x, y) for y, row in enumerate(PLANE_ROWS) for x, mark in enumerate(row) if mark == "#")
 PLANE_WIDE = len(PLANE_ROWS[0])
+TRACK = (52, 58, 60)
 LABEL = (200, 206, 206)
 
 
@@ -164,10 +163,10 @@ class FlightModule(Module):
         self._identity(frame, payload, logos, t, settings["layout"] == "detail", arrive)
         return stale_marker(frame, snap)
 
-    # --- spotlight -----------------------------------------------------------
+    # --- one card per aircraft ---------------------------------------------------
 
     def _identity(self, frame, row, logos, t, detail, arrive=True):
-        """Who it is: the airline's mark, flight number, route and aircraft."""
+        """Who it is, where from, where to, and how far along: all of it, still."""
         carrier = airline(row["callsign"])
         logo = logo_image(logos.get(carrier[0])) if carrier else None
         mark = Image.new("RGB", (32, 32))
@@ -185,132 +184,123 @@ class FlightModule(Module):
         if carrier:  # Names as the airline writes them: "United 1432", "JetBlue 88".
             name = f"{display_name(carrier[1])} {name.split()[-1]}"
         lower = bool(carrier)
-        # How long is left is worth more than the airline's full name, so the name
-        # gives up its room first: "JetBlue 1524" becomes "B6 1524" to make space.
-        minutes = row.get("minutes_left")
-        ticking = "" if minutes is None or minutes >= 900 else (
-            f"{minutes}M" if minutes < 100 else f"{minutes // 60}H{minutes % 60:02d}M")
-        budget = INFO_WIDTH - (tiny_width(ticking) + 4 if ticking else 0)
-        title = name if text_width(name, 1, lower) <= budget else short
-        draw_text(card, _fit(title, budget, 1, lower), INFO_X, 0, WHITE, mixed=lower)
         origin, destination = row.get("origin"), row.get("destination")
-        kind = row.get("type")
-        # Route databases key on the callsign, and airlines reuse them, so many flights
-        # have no route we can trust. Where the aircraft is and how it moves still says
-        # which airport it is landing at or has just left: the known end goes where it
-        # belongs and the other is left as a question.
-        inferred = ""
-        if not (origin and destination) and row.get("phase") in ("arriving", "departing") and row.get("airport"):
-            city = str(row.get("airport_city") or "").upper()
-            if row["phase"] == "departing":
-                origin, destination, inferred = row["airport"], "???", f"LEAVING {city}".strip()
-            else:
-                origin, destination, inferred = "???", row["airport"], f"LANDING AT {city}".strip()
-        if origin and destination:
-            draw_text(card, origin, INFO_X, 9, MUTED if origin == "???" else WHITE, 2, True)
-            x = INFO_X + text_width(origin, 2) + 3
-            for dx, dy in PLANE:
-                card.putpixel((x + dx, 13 + dy), AMBER)
-            draw_text(card, destination, x + PLANE_WIDE + 3, 9, MUTED if destination == "???" else WHITE, 2, True)
-            # Everything at once underneath: the cities in full, and how long is left.
-            cities = [city.upper() for city in row.get("cities") or []]
-            line = f"{cities[0]} {ARROW} {cities[1]}" if len(cities) == 2 else (inferred or where(row))
-            left = row.get("minutes_left")
-            # The aircraft goes beside the cities; the time left sits by the flight number.
-            plane = type_name(row["type"], long=False) if row.get("type") else ""
-            # "5H19" read as a number cut off halfway, so the minutes say so.
-            clock = "" if left is None or left >= 900 else (
-                f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}M")
-            room = INFO_WIDTH
-            # The big codes already say from and to, so when the aircraft will not fit
-            # beside both cities, name the city it is heading for.
-            if plane and len(cities) == 2 and tiny_width(line) + 5 + tiny_width(plane) > INFO_WIDTH:
-                shorter = f"{ARROW} {cities[1]}"
-                if tiny_width(shorter) + 5 + tiny_width(plane) <= INFO_WIDTH:
-                    line = shorter
-            if plane and tiny_width(line) + 5 + tiny_width(plane) <= INFO_WIDTH:
-                draw_tiny(card, plane, 128 - tiny_width(plane), 26, AMBER)
-                room = INFO_WIDTH - tiny_width(plane) - 5
-            elif clock and tiny_width(line) + 5 + tiny_width(clock) <= INFO_WIDTH:
-                draw_tiny(card, clock, 128 - tiny_width(clock), 26, AMBER)
-                room = INFO_WIDTH - tiny_width(clock) - 5
-                clock = ""
-            if clock and text_width(title, 1, lower) + 4 + tiny_width(clock) <= INFO_WIDTH:
-                draw_tiny(card, clock, 128 - tiny_width(clock), 1, AMBER)
-                clock = ""
-            draw_tiny(card, _fit_tiny(line, room), INFO_X, 26, WHITE if len(cities) == 2 or inferred else GREEN)
+        inferred = self._inferred(row) if not (origin and destination) else None
+        if (origin and destination) or inferred:
+            self._route(card, row, name, short, lower, origin, destination, inferred)
         else:
-            # No published route (private and military flights): the aircraft is the story.
-            label = mixed(type_name(kind, long=False)) or "Aircraft"
-            if row.get("phase") == "overflight":
-                inferred = "OVERFLIGHT"
-            size = 2 if text_width(label, 2, True) <= INFO_WIDTH else 1
-            draw_text(card, _fit(label, INFO_WIDTH, size, True), INFO_X, 9 if size == 2 else 13, AMBER, size,
-                      size == 2, mixed=True)
-            draw_text(card, _fit(where(row), INFO_WIDTH), INFO_X, 25, GREEN)
-        # The bottom line turns over through everything else worth knowing, so height,
-        # speed, how far off and how long it has flown are all on the card in turn.
-        turn = int(t // FACT_SECONDS) % 3
-        if turn:
-            ImageDraw.Draw(card).rectangle((INFO_X, 24, 127, 31), fill=(0, 0, 0))
-            text, colour = self._more(row, turn)
-            draw_tiny(card, _fit_tiny(text, INFO_WIDTH), INFO_X, 26, colour)
+            self._unrouted(card, row, name, short, lower)
         frame.paste(card.crop((0, 0, 128, 32 - rise)), (0, rise))
 
     @staticmethod
-    def _more(row, turn):
-        """The bottom line's second and third readings."""
-        compact = lambda minutes: f"{int(minutes)}M" if minutes < 60 else f"{int(minutes) // 60}H{int(minutes) % 60:02d}M"
-        if turn == 1:
-            rate = row.get("vertical_rate")
-            arrow = "" if rate is None else "↑" if rate > 250 else "↓" if rate < -250 else ""
-            parts = [type_name(row["type"], long=False)] if row.get("type") else []
-            if row.get("altitude") is not None:
-                parts.append(f"{row['altitude']:,}FT{arrow}")
-            if row.get("speed"):
-                parts.append(f"{round(row['speed'])}KT")
-            text = "  ".join(parts)
-            return (text if text_width(text) <= INFO_WIDTH else "  ".join(parts[1:])) or where(row), GREEN
-        parts = [f"{row['distance']:.1f}MI {compass(row.get('bearing'))}"]
-        if row.get("minutes_flown") is not None:
-            parts.append(f"IN AIR {compact(row['minutes_flown'])}")
-        elif row.get("phase") in ("arriving", "departing", "overflight"):
-            parts.append(row["phase"].upper())
-        text = "  ".join(parts)
-        left = row.get("minutes_left")
-        if left is not None and text_width(text + f"  {compact(left)} TO GO") <= INFO_WIDTH:
-            text += f"  {compact(left)} TO GO"
-        return text, GREEN
+    def _inferred(row):
+        """Route databases key on the callsign, and airlines reuse them, so many flights have
+        no route we can trust. Where the aircraft is and how it moves still says which
+        airport it is landing at or has just left."""
+        if row.get("phase") in ("arriving", "departing") and row.get("airport"):
+            return ("Leaving", "Landing at")[row["phase"] == "arriving"], row["airport"], \
+                str(row.get("airport_city") or row["airport"])
+        return None
+
+    def _title(self, card, row, name, short, lower, room=INFO_WIDTH):
+        """The airline and flight number on the top line, the aircraft type beside it if it fits."""
+        title = name if text_width(name, 1, lower) <= room else short
+        title = _fit(title, room, 1, lower)
+        draw_text(card, title, INFO_X, 0, WHITE, mixed=lower)
+        if row.get("type"):
+            gap = text_width(title, 1, lower) + 5
+            for plane in (type_name(row["type"], long=False), row["type"]):
+                if tiny_width(plane) + gap <= INFO_WIDTH:
+                    draw_tiny(card, plane, 128 - tiny_width(plane), 1, MUTED)
+                    break
+
+    def _route(self, card, row, name, short, lower, origin, destination, inferred):
+        self._title(card, row, name, short, lower)
+        if inferred:
+            lead, code, city = inferred
+            first, first_code, second, second_code = lead, "", city, code
+            first_colour = LABEL
+        else:
+            cities = [city.title() for city in row.get("cities") or []]
+            known = len(cities) == 2
+            first, first_code = (cities[0], origin) if known else (origin, "")
+            second, second_code = (cities[1], destination) if known else (destination, "")
+            first_colour = LABEL
+        self._line(card, first, first_code, 9, first_colour)
+        self._line(card, second, second_code, 18, AMBER)      # where it is going, in the bar's colour
+        self._bottom(card, row, inferred)
 
     @staticmethod
-    def facts(row):
-        """The bottom line's facts, in turn: the far city, the aircraft, where to look,
-        and how long it has flown and has to go. Each fits the line or is left out."""
-        found = []
-        cities = [city.upper() for city in row.get("cities") or []]
-        if len(cities) == 2:
-            # The far end of the trip: home is the other one, so "FROM DETROIT" on the way in.
-            found.append((f"FROM {cities[0]}" if row.get("local") == "destination" else f"TO {cities[1]}", WHITE))
-        if row.get("type"):
-            label = type_name(row["type"])
-            found.append((label if text_width(label) <= INFO_WIDTH else type_name(row["type"], long=False), AMBER))
-        found.append((where(row), GREEN))
-        left, flown = row.get("minutes_left"), row.get("minutes_flown")
-        if left is not None:
-            found.append((f"{duration(left)} TO GO", AMBER))
-        if flown is not None:
-            found.append((f"IN AIR {duration(flown)}", MUTED))
-        fitted = []
-        for text, color in found:
-            if text_width(text) > INFO_WIDTH and text.startswith(("TO ", "FROM ")):
-                text = text.split(" ", 1)[1]  # "TO SALT LAKE CITY" too long: the city alone
-            if text_width(text) <= INFO_WIDTH:
-                fitted.append((text, color))
-        return fitted
+    def _line(card, city, code, y, colour):
+        """A city in full, with its airport code small at the end of the line when there is room."""
+        candidates = [city] + ([shorter] if (shorter := re.split(r"[-/]", city)[0].strip()) != city else [])
+        for tag in ((code,) if code else ()) + ("",):
+            room = INFO_WIDTH - (tiny_width(tag) + 4 if tag else 0)
+            text = next((c for c in candidates if text_width(c, 1, True) <= room), None)
+            if text is not None:
+                draw_text(card, text, INFO_X, y, colour, mixed=True)
+                if tag:
+                    draw_tiny(card, tag, 128 - tiny_width(tag), y + 1, MUTED)
+                return
+        # A very long name: the small font has room for all of it; failing that, a cut one.
+        if tiny_width(city.upper()) <= INFO_WIDTH:
+            draw_tiny(card, city.upper(), INFO_X, y + 1, colour)
+        else:
+            draw_text(card, _fit(candidates[-1], INFO_WIDTH, 1, True), INFO_X, y, colour, mixed=True)
 
-    def _fact(self, row, t):
-        facts = self.facts(row) or [("", WHITE)]
-        return facts[int(t // FACT_SECONDS) % len(facts)]
+    def _bottom(self, card, row, inferred):
+        """The strip under the cities: how far along it is and how long is left; where it is
+        and how it is moving when the far end of the trip is not known."""
+        left = row.get("minutes_left")
+        clock = "" if left is None or left >= 900 else (f"{left}M" if left < 100 else f"{left // 60}H{left % 60:02d}M")
+        progress = row.get("progress")
+        if progress is None or inferred:
+            text = where(row) if inferred is None else self._motion(row)
+            draw_tiny(card, _fit_tiny(text, INFO_WIDTH), INFO_X, 27, GREEN)
+            return
+        right = 127 - (tiny_width(clock) + 4 if clock else 0)
+        self._bar(card, INFO_X + 1, right - 1, 29, max(0.0, min(1.0, float(progress))))
+        if clock:
+            draw_tiny(card, clock, 128 - tiny_width(clock), 27, AMBER)
+
+    @staticmethod
+    def _motion(row):
+        """Height and speed, for a flight whose route is only a guess."""
+        rate = row.get("vertical_rate")
+        arrow = "" if rate is None else "↑" if rate > 250 else "↓" if rate < -250 else ""
+        parts = []
+        if row.get("altitude") is not None:
+            parts.append(f"{row['altitude']:,}FT{arrow}")
+        if row.get("speed"):
+            parts.append(f"{round(row['speed'])}KT")
+        return "  ".join(parts) or where(row)
+
+    @staticmethod
+    def _bar(card, left, right, y, progress):
+        """The flight as a line from one city to the other, the aircraft where it has got to."""
+        draw = ImageDraw.Draw(card)
+        span = right - left
+        draw.line((left, y, right, y), fill=TRACK, width=1)
+        draw.line((left, y + 1, right, y + 1), fill=TRACK, width=1)
+        here = left + round(span * progress)
+        if here > left:
+            draw.line((left, y, here, y), fill=AMBER)
+            draw.line((left, y + 1, here, y + 1), fill=AMBER)
+        for end in (left, right):                      # the two airports
+            draw.rectangle((end - 1, y - 1, end, y + 2), fill=WHITE if end == left else MUTED)
+        x0 = max(left, min(right - PLANE_WIDE, here - PLANE_WIDE // 2))
+        for dx, dy in PLANE:
+            card.putpixel((x0 + dx, y - 2 + dy), WHITE)
+
+    def _unrouted(self, card, row, name, short, lower):
+        """No published route (private and military flights): the aircraft is the story."""
+        draw_text(card, _fit(name if text_width(name, 1, lower) <= INFO_WIDTH else short, INFO_WIDTH, 1, lower),
+                  INFO_X, 0, WHITE, mixed=lower)
+        label = mixed(type_name(row.get("type"), long=False)) or "Aircraft"
+        size = 2 if text_width(label, 2, True) <= INFO_WIDTH else 1
+        draw_text(card, _fit(label, INFO_WIDTH, size, True), INFO_X, 9 if size == 2 else 12, AMBER, size,
+                  size == 2, mixed=True)
+        draw_text(card, _fit(where(row), INFO_WIDTH), INFO_X, 25, GREEN)
 
     @staticmethod
     def _badge(image, carrier):

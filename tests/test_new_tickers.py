@@ -468,3 +468,107 @@ class PixelTownLifeTests(unittest.TestCase):
             town._ship_step(1 / 30, town.rng)
             if town.ship:
                 self.assertTrue(-17 < town.ship["x"] < TOWN.BEACH_END + 5)
+
+
+class NewsBreakingTests(unittest.TestCase):
+    """A story under a minute old is breaking, and the desk says so."""
+
+    def rows(self, seconds):
+        from datetime import timedelta
+        return [dict(title="Fed announces surprise rate cut as markets rally", channel="MONEY", outlet="CNBC",
+                     published=datetime.now(timezone.utc) - timedelta(seconds=seconds))]
+
+    def frame(self, rows, style, t=2.0):
+        registry = PluginRegistry(); registry.register(NEWS.plugin)
+        config = validate_config({"plugins": {"news": {"style": style}}, "modules": {"news": {"enabled": True}},
+                                  "playlist": [{"id": "news", "module": "news"}]}, registry)
+        screen = NEWS.NewsModule()
+        snapshots = {"news": Snapshot({"items": rows}, source="rss")}
+        now = datetime.now(timezone.utc)
+        screen.render(RenderContext(now, 0, config, snapshots, Message(), SystemStatus(), 1))
+        return validate_frame(screen.render(RenderContext(now, t, config, snapshots, Message(), SystemStatus(), 1)))
+
+    def test_under_a_minute_old_is_breaking_not_zero_minutes_ago(self):
+        self.assertTrue(NEWS.breaking(self.rows(20)[0]))
+        self.assertFalse(NEWS.breaking(self.rows(75)[0]))
+        self.assertFalse(NEWS.breaking({"title": "undated", "published": None}))
+        self.assertEqual(NEWS._age(self.rows(5)[0]["published"]), "BREAKING")
+        self.assertEqual(NEWS._age(self.rows(300)[0]["published"], long=True), "5M AGO")
+
+    def test_the_caption_of_a_breaking_story_names_the_outlet_not_the_age(self):
+        self.assertEqual(NEWS._caption(self.rows(10)[0], 100), "CNBC")
+        self.assertEqual(NEWS._caption(self.rows(400)[0], 100), "CNBC 6M AGO")
+
+    def test_a_breaking_story_looks_different_on_both_desks(self):
+        for style in ("breaking", "zipper"):
+            for t in (0.5, 2.0):
+                with self.subTest(style=style, t=t):
+                    self.assertNotEqual(self.frame(self.rows(10), style, t).tobytes(),
+                                        self.frame(self.rows(3600), style, t).tobytes())
+
+    def test_the_lamp_flashes(self):
+        self.assertNotEqual(NEWS.flashing(0.1), NEWS.flashing(0.6))
+
+    def test_strips_are_drawn_ahead_gently_not_all_in_one_go(self):
+        import asyncio
+        rows = [dict(title=f"Headline number {n} about something", channel="TOP", outlet="NBC", published=None)
+                for n in range(12)]
+        provider = NEWS.NewsProvider(type("Context", (), {"settings": {}})())
+        NEWS.zipper_strip.cache_clear()
+
+        async def go():
+            provider._warm_later(rows)
+            first = NEWS.zipper_strip.cache_info().currsize      # nothing has been drawn yet: the caller was not held up
+            await provider.warming
+            return first, NEWS.zipper_strip.cache_info().currsize
+        first, last = asyncio.run(go())
+        self.assertEqual(first, 0)
+        self.assertEqual(last, 3)
+
+
+class FinanceTapeTests(unittest.TestCase):
+    """The tape is drawn a symbol at a time, and new quotes never make the crawl jump."""
+
+    @staticmethod
+    def data(scale, seed=1, named=True):
+        rng = random.Random(seed)
+        rows = []
+        for symbol, name in (("NVDA", "NVIDIA"), ("AAPL", "APPLE"), ("MSFT", "MICROSOFT"), ("TSLA", "TESLA")):
+            name = name if named else ""
+            closes = [round(100 * scale + rng.uniform(-5, 5), 2) for _ in range(30)]
+            rows.append(dict(FINANCE._row(symbol, closes[-1], closes[0], closes), name=name))
+        return {"indices": [dict(rows[0], label="S&P")], "tape": rows}
+
+    def context(self, data, t):
+        registry = PluginRegistry(); registry.register(FINANCE.plugin)
+        config = validate_config({"plugins": {"finance": {}}, "modules": {"finance": {"enabled": True}},
+                                  "playlist": [{"id": "finance", "module": "finance"}]}, registry)
+        return RenderContext(datetime.now(timezone.utc), t, config, {"finance": Snapshot(data)}, Message(),
+                             SystemStatus(), 1)
+
+    def test_the_strip_is_the_blocks_side_by_side(self):
+        key = FINANCE._key(self.data(1)["tape"])
+        strip, starts = FINANCE.tape_strip(key)
+        self.assertEqual(len(starts), len(key))
+        self.assertEqual(starts[1] - starts[0], FINANCE._layout(key[0])[5] + 15)
+        block = FINANCE.tape_block(key[1])
+        self.assertEqual(strip.crop((starts[1], 0, starts[1] + block.width, 21)).tobytes(), block.tobytes())
+
+    def test_new_quotes_swap_in_without_the_crawl_jumping(self):
+        screen = FINANCE.FinanceModule()
+        before, after = self.data(1), self.data(37.7, named=False)   # quotes that lay out a different width
+        screen.render(self.context(before, 0.0))
+        for frame in range(1, 200):
+            screen.render(self.context(before, frame / 30))
+        old_strip, old_starts = screen._strip[1], screen._strip[2]
+        edge = screen.position % old_strip.width
+        index = max(i for i, start in enumerate(old_starts) if start <= edge)
+        inside = edge - old_starts[index]
+        screen.render(self.context(after, 200 / 30))
+        new_strip, new_starts = screen._strip[1], screen._strip[2]
+        self.assertNotEqual(old_strip.width, new_strip.width, "the test data did not change the layout")
+        edge_now = screen.position % new_strip.width
+        index_now = max(i for i, start in enumerate(new_starts) if start <= edge_now)
+        # the same symbol is at the left edge, and it is one pixel further along, as any frame would have it
+        self.assertEqual(index_now, index)
+        self.assertEqual(edge_now - new_starts[index_now], inside + 1)

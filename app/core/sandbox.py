@@ -26,7 +26,11 @@ from app.modules.base import Module
 log = logging.getLogger("sandbox")
 APP_ROOT = Path(__file__).resolve().parents[2]
 FRAME_BYTES = 128 * 32 * 3
-HANG_SECONDS = 6.0          # a render request unanswered this long means the plugin is stuck
+HANG_SECONDS = 10.0         # nothing heard from the process for this long, with a request open, means it is stuck
+HESITATE_SECONDS = 1.0      # before stopping a silent process, wait this long for replies the display has yet to read
+LOOKAHEAD = 4               # frames drawn ahead of the one on show, so a late reply never shows as a hitch
+QUEUE_LIMIT = 12            # frames kept per plugin; the oldest give way
+SLOW_FRAME = .2             # a screen that redraws less often than this is static: no need to draw ahead
 MEMORY_MB = 160             # resident memory budget per plugin process (a Pi 3 has 512 MB in all)
 CRASH_WINDOW, CRASH_LIMIT = 600, 5
 BACKOFF = (1, 2, 5, 10, 30, 60)
@@ -36,8 +40,10 @@ def plugin_env(data_dir):
     """A plain environment: no secrets or credentials inherited from the service."""
     keep = ("PATH", "TZ", "LANG", "LC_ALL", "SYSTEMROOT")
     env = {key: os.environ[key] for key in keep if key in os.environ}
+    # One malloc arena per thread is how a busy process on a small board ends up twice its
+    # real size; two is plenty for a plugin process.
     env.update({"HOME": str(data_dir), "PYTHONPATH": str(APP_ROOT), "PYTHONUNBUFFERED": "1",
-                "PYTHONDONTWRITEBYTECODE": "1"})
+                "PYTHONDONTWRITEBYTECODE": "1", "MALLOC_ARENA_MAX": "2"})
     return env
 
 
@@ -100,6 +106,8 @@ class PluginProcess:
         self.tasks = []
         self.starting = None
         self.log_budget = (0.0, 0)
+        self.culprit = None
+        self.heard = time.monotonic()      # the last time the process said anything at all
 
     async def ensure(self):
         if self.process is not None and self.process.returncode is None:
@@ -118,6 +126,7 @@ class PluginProcess:
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             cwd=str(self.data_dir), env=plugin_env(self.data_dir))
         self.process = process
+        self.heard = time.monotonic()
         self.tasks = [asyncio.create_task(self._read(process)), asyncio.create_task(self._errors(process)),
                       asyncio.create_task(self._watch(process))]
 
@@ -178,6 +187,7 @@ class PluginProcess:
                     reason = "sent a malformed message"
                     break
                 payload = await process.stdout.readexactly(length) if length else b""
+                self.heard = time.monotonic()
                 host = self.hosts.get(header.get("plugin"))
                 if host is None and header.get("folder"):
                     host = next((item for item in self.hosts.values()
@@ -221,16 +231,33 @@ class PluginProcess:
     async def _watch(self, process):
         while process.returncode is None:
             await asyncio.sleep(2)
-            for host in list(self.hosts.values()):
-                if host.pending_at is not None and time.monotonic() - host.pending_at > HANG_SECONDS:
-                    self.kill(host, "stopped responding")
-                    return
-            rss = resident_mb(process.pid)
-            budget = MEMORY_MB + 40 * max(0, len(self.hosts) - 1)
-            if rss and rss > budget and self.hosts:
-                # Blame the plugin that loaded last: it is the likeliest newcomer to leak.
-                self.kill(list(self.hosts.values())[-1], f"used {rss:.0f} MB of memory (limit {budget})")
+            if await self.inspect(process):
                 return
+
+    async def inspect(self, process):
+        """One look at the process: True if it was stopped because it is stuck or too big."""
+        for host in list(self.hosts.values()):
+            waiting = host.pending_at is not None and time.monotonic() - host.pending_at > HANG_SECONDS
+            if not waiting:
+                continue
+            if time.monotonic() - self.heard < HANG_SECONDS:
+                # The process is answering others: this one lost a request (or the display
+                # was busy), which is not a hang. Ask again rather than restart everything.
+                host.pending_at = None
+                continue
+            # Silent for a long time. If the display itself was stalled the replies may
+            # simply be waiting to be read: give the reader a moment before deciding.
+            await asyncio.sleep(HESITATE_SECONDS)
+            if time.monotonic() - self.heard >= HANG_SECONDS and host.pending_at is not None:
+                self.kill(host, "stopped responding")
+                return True
+        rss = resident_mb(process.pid)
+        budget = MEMORY_MB + 40 * max(0, len(self.hosts) - 1)
+        if rss and rss > budget and self.hosts:
+            # Blame the plugin that loaded last: it is the likeliest newcomer to leak.
+            self.kill(list(self.hosts.values())[-1], f"used {rss:.0f} MB of memory (limit {budget})")
+            return True
+        return False
 
 
 class SandboxHost:
@@ -248,9 +275,13 @@ class SandboxHost:
         self.frame = None
         self.frame_bytes = b""
         self.frame_scene = None
+        self.frame_t = None
+        self.queue = deque()            # (t, scene, pixels) drawn ahead, oldest first
+        self.asked = (None, None)       # (scene, t) of the last frame requested
+        self.received = (None, b"")     # (scene, pixels) of the last frame that arrived
         self.available = False
         self.hold = False
-        self.interval = 1.0
+        self.interval = 0.0             # until the plugin says how often it changes, assume every frame
         self.pending_at = None
         self.render_ms = deque(maxlen=60)
         self.stopping = False
@@ -260,6 +291,9 @@ class SandboxHost:
     async def start(self):
         self.stopping = False
         self.state, self.pending_at = "starting", None
+        self.queue.clear()
+        self.asked = (None, None)
+        self.received = (None, b"")
         await self.process.attach(self)
         self.configure()
 
@@ -319,15 +353,60 @@ class SandboxHost:
         self.send({"op": "configure", "settings": settings, "display": config["display"]})
 
     def request(self, context):
-        """Ask for the next frame; never waits for it."""
-        now = time.monotonic()
-        if self.state != "running" or (self.pending_at is not None and now - self.pending_at < 1.0):
+        """Ask for the frames the display will need next; never waits for them.
+
+        A crawl moves a pixel a frame, so a reply that comes one frame late shows as
+        a hitch. Animated screens are therefore drawn a few frames ahead and the
+        display shows the one whose moment has come; static ones are asked for once."""
+        if self.state != "running":
             return
-        fps = context.config["display"]["fps"]
-        # Ask for the moment this frame will actually be shown: one frame ahead.
-        if self.send({"op": "render", "t": context.animation_time + 1 / fps,
-                      "now": context.now.timestamp(), "scene": context.scene}):
-            self.pending_at = self.pending_at or now
+        config = context.config
+        period = config["simulator"]["animation_speed"] / config["display"]["fps"]
+        now = context.animation_time
+        scene, asked = self.asked
+        ahead = LOOKAHEAD if self.interval <= SLOW_FRAME else 1
+        if scene != context.scene or asked is None or asked < now - period * 8:
+            first = now
+            self.queue = deque(item for item in self.queue if item[1] == context.scene)
+        else:
+            first = asked + period
+        last = now + ahead * period
+        if self.interval > SLOW_FRAME:
+            # A screen that rarely changes: one fresh frame each time it is due.
+            if scene == context.scene and asked is not None and asked >= now:
+                return
+            first = last = now
+        wall = context.now.timestamp()
+        moment, sent = first, False
+        while moment <= last + 1e-9:
+            if self.send({"op": "render", "t": moment, "scene": context.scene,
+                          "now": wall + (moment - now) / max(config["simulator"]["animation_speed"], 1e-6)}):
+                self.pending_at = self.pending_at or time.monotonic()
+                self.asked = (context.scene, moment)
+                sent = True
+            moment += period
+        return sent
+
+    def frame_for(self, context):
+        """The picture for this moment: the newest drawn frame that is not from the future."""
+        config = context.config
+        period = config["simulator"]["animation_speed"] / config["display"]["fps"]
+        limit = context.animation_time + period * .999
+        chosen = None
+        while self.queue and self.queue[0][1] != context.scene:
+            self.queue.popleft()                    # a screen we have left
+        while self.queue and self.queue[0][0] <= limit:
+            chosen = self.queue.popleft()
+        if chosen is not None:
+            t, scene, pixels = chosen
+            self.frame_t, self.frame_scene = t, scene
+            if pixels != self.frame_bytes:
+                self.frame_bytes = pixels
+                self.frame = Image.frombytes("RGB", (128, 32), pixels)
+        return self.frame if self.frame_scene == context.scene else None
+
+    def has_frame(self, scene):
+        return self.frame_scene == scene or any(item[1] == scene for item in self.queue)
 
     def _message(self, header, payload):
         op = header.get("op")
@@ -344,16 +423,17 @@ class SandboxHost:
                 return
             if len(payload) != FRAME_BYTES:
                 return
-            # Only a changed picture marks the screen dirty; otherwise a static
-            # plugin would be asked for frame after identical frame forever.
-            changed = payload != self.frame_bytes or header.get("scene") != self.frame_scene
-            self.frame_bytes = payload
-            self.frame = Image.frombytes("RGB", (128, 32), payload)
-            self.frame_scene = header.get("scene")
             self.available = bool(header.get("available"))
             self.hold = bool(header.get("hold"))
             self.interval = max(1 / 60, min(3600.0, float(header.get("interval") or 1)))
             self.render_ms.append(float(header.get("ms") or 0))
+            self.queue.append((float(header.get("t") or 0.0), header.get("scene"), payload))
+            while len(self.queue) > QUEUE_LIMIT:
+                self.queue.popleft()
+            # Only a changed picture marks the screen dirty; otherwise a static plugin
+            # would be asked for frame after identical frame forever.
+            changed = self.received != (header.get("scene"), payload)
+            self.received = (header.get("scene"), payload)
             current = self.runtime.scheduler.current
             if changed and current and current.module == self.name:
                 self.runtime.dirty = True
@@ -391,6 +471,9 @@ class SandboxModule(Module):
     def available(self, context):
         return self.host.state == "running" and self.host.available
 
+    def ready(self, context):
+        return self.host.has_frame(context.scene)
+
     def refresh_interval(self, context):
         self.host.request(context)
         return max(1 / context.config["display"]["fps"], min(self.host.interval, 1.0))
@@ -400,8 +483,8 @@ class SandboxModule(Module):
 
     def render(self, context):
         self.host.request(context)
-        frame = self.host.frame
-        if frame is None or self.host.frame_scene != context.scene:
+        frame = self.host.frame_for(context)
+        if frame is None:
             # Nothing drawn for this visit yet: a quiet placeholder, never an old scene.
             frame = new_frame()
             if self.host.state != "running":

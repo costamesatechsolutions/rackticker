@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from io import BytesIO
 import logging
+import sys
 import threading
 import time
 import zipfile
@@ -15,11 +16,16 @@ import json
 from pathlib import Path
 import tempfile
 
+try:
+    import resource
+except ImportError:         # Windows: no page-fault counts, everything else works
+    resource = None
+
 from app.core.plugins import PluginRegistry, BUILTINS
 from app.plugin_api import PluginContext
 from app.providers.base import Provider
 from app.outputs.base import FrameSink
-from app.core import offload
+from app.core import memory, offload
 from app.core.fonts import centered
 from app.core.models import Snapshot, Message, PriorityEvent, SystemStatus, utcnow
 from app.core.playlist import from_config
@@ -46,6 +52,19 @@ ANIMATION_UNITS = 1200
 # is visible as a hitch in a 1 px/frame crawl; both are recorded for /api/state.
 SLOW_RENDER_SECONDS = .025
 STALL_SECONDS = .1
+# Which screens are on offer is worth knowing a few times a second, not thirty.
+ELIGIBLE_SECONDS = .25
+TRIM_SECONDS = 45           # how often freed memory is handed back to the system
+# A screen from an installed plugin is drawn by another process. When the playlist arrives
+# at it, the previous screen stays up until its first picture is here (normally a frame or
+# two), so the panel never shows a black frame between screens.
+SCENE_GATE_SECONDS = .6
+# One failed refresh (a slow reply from a Pi's Wi-Fi) is not news; data is called stale, and
+# screens say so, only after this many in a row.
+FAILURES_BEFORE_STALE = 3
+# A provider's deadline. Feeds on a Pi's Wi-Fi, with the CPU shared by the panel's refresh and
+# the ADS-B decoder, can take longer than the two seconds they take on a laptop.
+PROVIDER_SECONDS = 9
 
 
 NETWORK_STATE = Path("/run/rackticker-network/network.json")
@@ -116,6 +135,7 @@ class Runtime:
         self.message = self.config_message()
         self.scheduler = Scheduler(from_config(config))
         self.failed_until = {}
+        self.failures = {}          # consecutive failed refreshes, per provider
         self.frame = new_frame()
         self.frame_count = 0
         self.history = deque(maxlen=30)
@@ -160,6 +180,15 @@ class Runtime:
         self.home_assistant = None
         self.plugin_process = None  # shared sandbox on small machines
         self.sandboxes = {}
+        self._eligible = None
+        self._eligible_at = 0.0
+        self._eligible_config = None
+        self.trimmed = time.monotonic()
+        self.scene_gate = None      # when to stop waiting for the new screen's first picture
+        self.gc_seconds = 0.0       # time spent in garbage collection since the last note
+        self.gc_started = 0.0
+        self.cpu_mark = time.process_time()
+        self.fault_mark = self.page_faults()
         self.install_plugins()
 
     def install_plugins(self):
@@ -167,6 +196,7 @@ class Runtime:
             self.install_plugin(name)
 
     def install_plugin(self, name):
+        self._eligible = None
         plugin = self.registry.plugins[name]
         if name in self.registry.sandboxed:
             manifest = self.registry.sandboxed[name]
@@ -244,7 +274,8 @@ class Runtime:
                     log.exception("Provider cleanup failed")
         current = self.scheduler.current
         if current and current.module == name:
-            self.scheduler.next(self.eligible())
+            self.scheduler.next(self.eligible(fresh=True))
+        self._eligible = None
         self.dirty = True
 
     def catalog(self):
@@ -318,10 +349,13 @@ class Runtime:
         return RenderContext(self.wall_now, (self.animation_units - self.scene_units) / ANIMATION_UNITS,
                              self.config, self.snapshots, self.message, self.system, self.scene_token or 0)
 
-    def eligible(self):
+    def eligible(self, fresh=False):
+        now = time.monotonic()
+        if (not fresh and self._eligible is not None and self._eligible_config is self.config
+                and now - self._eligible_at < ELIGIBLE_SECONDS):
+            return self._eligible
         context = self.context()
         result = set()
-        now = time.monotonic()
         for e in self.scheduler.entries:
             if (e.module not in self.modules or not e.enabled
                     or not self.config["modules"][e.module]["enabled"]
@@ -334,9 +368,11 @@ class Runtime:
                     result.add(e.id)
             except Exception as exc:
                 self.fail_module(e.module, exc)
+        self._eligible, self._eligible_at, self._eligible_config = result, now, self.config
         return result
 
     def fail_module(self, module, error):
+        self._eligible = None
         self.failed_until[module] = time.monotonic() + 30
         self.record(module, f"module failed; skipping for 30s: {error}", "error")
 
@@ -377,22 +413,28 @@ class Runtime:
             # Wi-Fi. Fetching is already isolated from the render loop, so a
             # slightly wider deadline improves reliability without affecting
             # matrix frame timing.
-            result = await asyncio.wait_for(self.on_provider_loop(self.providers[name].fetch()), timeout=6)
+            result = await asyncio.wait_for(self.on_provider_loop(self.providers[name].fetch()), timeout=PROVIDER_SECONDS)
             if not isinstance(result, Snapshot):
                 raise TypeError("Provider must return a Snapshot")
             if (utcnow() - result.updated_at).total_seconds() > 30:
                 result = replace(result, stale=True)
             if previous and previous.error:
                 self.record(name, "provider recovered")
+            self.failures[name] = 0
         except Exception as exc:
             # Timeouts stringify to "", which logged as a blank error on the Pi.
             message = str(exc) or type(exc).__name__
-            result = replace(previous, stale=True, error=message) if previous else Snapshot(None, stale=True, error=message)
+            self.failures[name] = self.failures.get(name, 0) + 1
+            if previous and self.failures[name] < FAILURES_BEFORE_STALE and not self.provider_fault:
+                result = replace(previous, error=message)
+            else:
+                result = replace(previous, stale=True, error=message) if previous else Snapshot(None, stale=True, error=message)
             if not previous or previous.error != message:
                 self.record(name, f"provider error: {message}", "warning")
         finally:
             self.refreshing.discard(name)
         self.snapshots[name] = result
+        self._eligible = None
         if previous is None or (previous.data, previous.stale, previous.error) != (result.data, result.stale, result.error):
             self.dirty = True
 
@@ -433,7 +475,7 @@ class Runtime:
         # Build eligibility against the new playlist, not stale entry IDs.
         entries = from_config(config)
         self.scheduler.entries = entries
-        self.scheduler.replace(entries, self.eligible())
+        self.scheduler.replace(entries, self.eligible(fresh=True))
         self.dirty = True
         self.record("config", "configuration saved and applied")
 
@@ -487,6 +529,7 @@ class Runtime:
             self.message = Message(title, body, scrolling)
         else:
             raise ValueError("Unknown scenario module")
+        self._eligible = None
         self.dirty = True
         self.record(module, f"mock scenario -> {scenario or 'custom message'}")
         accepted = False
@@ -526,12 +569,32 @@ class Runtime:
                 "perf": {"slow": list(self.slow)},
                 "events": list(self.events), "failed_modules": [k for k,v in self.failed_until.items() if v > time.monotonic()]}
 
+    @staticmethod
+    def page_faults():
+        """Major page faults so far: memory that had to be read back from the SD card."""
+        return resource.getrusage(resource.RUSAGE_SELF).ru_majflt if resource else 0
+
+    def watch_gc(self, phase, info):
+        if phase == "start":
+            self.gc_started = time.perf_counter()
+        else:
+            self.gc_seconds += time.perf_counter() - self.gc_started
+
     def note_slow(self, kind, module, seconds):
+        """Record a slow frame with what it was doing: computing (cpu), waiting for memory to
+        come back from swap (faults), collecting garbage (gc). A stall with none of these
+        was the process not being scheduled at all."""
+        cpu, faults = time.process_time(), self.page_faults()
         entry = {"time": datetime.now().strftime("%H:%M:%S"), "kind": kind, "module": module,
-                 "ms": round(seconds * 1000), "providers": sorted(self.refreshing)}
+                 "ms": round(seconds * 1000), "providers": sorted(self.refreshing),
+                 "cpu_ms": round((cpu - self.cpu_mark) * 1000), "faults": faults - self.fault_mark,
+                 "gc_ms": round(self.gc_seconds * 1000)}
+        self.gc_seconds = 0.0
         self.slow.appendleft(entry)
         if seconds >= .25:
-            log.warning("%s %s took %dms (refreshing: %s)", kind, module, entry["ms"], ", ".join(entry["providers"]) or "-")
+            log.warning("%s %s took %dms (cpu %dms, faults %d, gc %dms; refreshing: %s)", kind, module,
+                        entry["ms"], entry["cpu_ms"], entry["faults"], entry["gc_ms"],
+                        ", ".join(entry["providers"]) or "-")
 
     def hold(self, cursor):
         module = self.modules.get(cursor.module)
@@ -561,6 +624,7 @@ class Runtime:
             self.scene_units = self.animation_units
             self.scene_token = token
             self.scene_transition = AUTO_TRANSITIONS[token % len(AUTO_TRANSITIONS)]
+            self.scene_gate = now + SCENE_GATE_SECONDS
             self.dirty = True
             context = self.context()
         current = self.scheduler.current
@@ -576,8 +640,9 @@ class Runtime:
                     self.render_due = now + module.refresh_interval(context)
                 except Exception as exc:
                     self.fail_module(current.module, exc)
-                    self.scheduler.next(self.eligible())
+                    self.scheduler.next(self.eligible(fresh=True))
                     self.dirty = True
+                    self.scene_gate = None
                     return
             else:
                 self.target = new_frame()
@@ -585,8 +650,22 @@ class Runtime:
                 centered(self.target, "PLAYLIST EMPTY", 19, MUTED)
                 self.render_due = float("inf")
             self.dirty = False
+        waiting = False
+        if self.scene_gate is not None:
+            module = self.modules.get(current.module) if current else None
+            try:
+                waiting = bool(module and now < self.scene_gate and not module.ready(context))
+            except Exception:
+                waiting = False
+            if waiting:
+                # The new screen has nothing to show yet: keep the old one up, and start
+                # the transition when there is a picture to bring in.
+                self.scene_started = self.animation_clock
+                self.render_due = min(self.render_due, now + 1 / self.config["display"]["fps"])
+            else:
+                self.scene_gate = None
         progress = (self.animation_clock - self.scene_started) / self.transition_duration()
-        candidate = transition(self.previous, self.target, progress, self.transition_kind())
+        candidate = self.previous if waiting else transition(self.previous, self.target, progress, self.transition_kind())
         if now - self.network_checked >= 5:
             self.network_checked = now
             self.network = read_network()
@@ -677,7 +756,7 @@ class Runtime:
             last = now
             # Static modules do no drawing; 10Hz handles controls and dwell deadlines.
             active = (self.animation_clock - self.scene_started < self.transition_duration()
-                      or self.render_due - now < .1)
+                      or self.render_due - now < .1 or self.scene_gate is not None)
             if not active:
                 deadline = time.monotonic() + .1
             else:
@@ -685,6 +764,10 @@ class Runtime:
                 deadline += period
                 if deadline < time.monotonic() - period:
                     deadline = time.monotonic() + period
+            if now - self.trimmed >= TRIM_SECONDS:
+                self.trimmed = now
+                memory.trim()
+            self.cpu_mark, self.fault_mark = time.process_time(), self.page_faults()
             await asyncio.sleep(max(0.0, deadline - time.monotonic()))
 
     async def start(self):
@@ -694,6 +777,11 @@ class Runtime:
         # rescanning; freezing them keeps later collections short on a Pi.
         gc.collect()
         gc.freeze()
+        # Collections then happen a tenth as often, and a thread that wants the interpreter
+        # (the render loop, when a provider is busy) gets it within a millisecond, not five.
+        gc.set_threshold(7000, 20, 20)
+        sys.setswitchinterval(.001)
+        gc.callbacks.append(self.watch_gc)
         for name, host in list(self.sandboxes.items()):
             try:
                 await host.start()
@@ -704,6 +792,8 @@ class Runtime:
                       asyncio.create_task(self.poll_providers(), name="providers")]
 
     async def close(self):
+        if self.watch_gc in gc.callbacks:
+            gc.callbacks.remove(self.watch_gc)
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)

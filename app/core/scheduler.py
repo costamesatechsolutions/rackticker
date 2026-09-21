@@ -16,8 +16,15 @@ log = logging.getLogger("playlist")
 HOLD_LIMIT = 75
 # An interrupt never yanks a screen before anyone could read it; it waits until
 # the current screen has had this long, and is dropped if still waiting later.
-MIN_READ_SECONDS = 8
-PENDING_TTL = 30
+MIN_READ_SECONDS = 12
+PENDING_TTL = 45
+# A screen that says it has nothing to show is given this long to change its mind before
+# the playlist moves on: a feed that blinks, a plugin restarting or a plane at the edge of
+# range must not snatch the screen from someone who is reading it.
+GONE_GRACE = 4.0
+# ...and a screen that is midway through something (a plane's card, a headline) is let
+# finish it, up to this long, even once it has nothing new to show.
+GONE_FINISH = 15.0
 
 
 @dataclass
@@ -29,6 +36,7 @@ class Cursor:
     kind: str = "playlist"
     priority: int = 0
     held: bool = False
+    gone: float = 0.0       # how long the screen has been saying it has nothing to show
 
 
 class Scheduler:
@@ -63,8 +71,14 @@ class Scheduler:
         a headline) before the playlist moves on, bounded by HOLD_LIMIT."""
         if self.current is None:
             self.next(eligible)
-        if self.current and self.current.kind == "playlist" and self.current.id not in eligible:
-            self.next(eligible)
+        c = self.current
+        if c and c.kind == "playlist":
+            if c.id in eligible:
+                c.gone = 0.0
+            else:
+                c.gone += max(0, dt)
+                if c.gone >= GONE_GRACE and not (c.gone < GONE_FINISH and hold and hold(c)):
+                    self.next(eligible)
         if self.paused or self.current is None:
             return
         if self.pending:

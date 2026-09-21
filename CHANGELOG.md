@@ -2,6 +2,36 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## 1.5.0 - 2026-09-20
+
+- **Smoother, and no more freezes.** The rack's own log showed the display stalling for up
+  to two and a half seconds at a time. The Pi 3A+ was short of memory and had pushed the
+  display's own pages out to the SD card; every stall was it waiting to read them back. The
+  Pi now uses compressed swap in RAM (`rackticker-memory.service`, best effort and only if the
+  kernel has zram), the processes hand freed memory back to the system, and each stall the
+  panel suffers is recorded in `/api/state` with what it was doing: computing, waiting for
+  swap, or collecting garbage.
+- **Screens from installed plugins scroll smoothly.** They are drawn a few frames ahead of the
+  one on show, so a late reply no longer shows as a hitch in a crawl, and the previous screen
+  stays up until a plugin's first picture is ready instead of flashing black between screens.
+- **One stuck plugin no longer restarts all of them.** A hung plugin used to be declared on a
+  single unanswered request and took every other installed plugin down with it, blanking the
+  screen being read. The process is now only stopped after real silence.
+- **Screens are not snatched away mid-read.** A screen that says it has nothing to show gets
+  four seconds to change its mind (a feed that blinks, a plugin restarting), a plane's card is
+  finished before the playlist moves on, one failed refresh is no longer called "cached", and
+  a passing plane waits twelve seconds into the current screen before it takes over.
+- **The stock tape and the news desk stop stuttering when data arrives.** New quotes swap
+  into the crawl without it jumping, and the news desk draws its headline strips a little at
+  a time instead of all at once.
+- **News says BREAKING** for a story under a minute old: a flashing red chip and its own
+  bumper, instead of "0M AGO". Stories under fifteen minutes old glow amber.
+- **Flights** are one still card: the airline, the city it left and the city it is going to
+  in full (airport codes small beside them), a progress bar with the aircraft on it, and the
+  time left. Nothing scrolls or turns over any more.
+- The random-dot dissolve is no longer in the automatic rotation of transitions: on an LED
+  panel it reads as flicker.
+
 ## 1.4.0 - 2026-09-20
 
 - **Flights** now know what the aircraft is. A plane does not transmit its type, so

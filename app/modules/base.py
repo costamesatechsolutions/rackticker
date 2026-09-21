@@ -33,6 +33,12 @@ class Module(ABC):
         """Infinity for static data; runtime invalidates these on data/config changes."""
         return float("inf")
 
+    def ready(self, context: RenderContext) -> bool:
+        """False while the screen has not yet got its first picture together (an installed
+        plugin's process is still drawing it); the display keeps the previous screen up
+        rather than flash an empty frame."""
+        return True
+
     def hold(self, context: RenderContext) -> bool:
         """Return True while mid-story (a crawl lap, a headline) so the playlist
         waits for it to finish instead of cutting it off. Bounded by the scheduler."""

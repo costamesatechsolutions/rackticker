@@ -75,7 +75,9 @@ def crawl_once_x(t, speed, viewport=WIDTH):
     return viewport - math.floor(max(0.0, t) * speed + 1e-6)
 
 
-AUTO_TRANSITIONS = ("slide_left", "wipe", "dissolve", "drop", "slide_up")
+# "dissolve" is still there to choose, but is not in the rotation: a random field of dots
+# on a PWM panel reads as flicker.
+AUTO_TRANSITIONS = ("slide_left", "wipe", "drop", "slide_up")
 
 
 def transition_seconds(kind, configured):

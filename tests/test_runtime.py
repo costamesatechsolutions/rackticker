@@ -66,7 +66,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_provider_failure_retains_data_marks_stale_and_recovers(self):
         original = self.r.snapshots["sports"]
-        self.r.provider_fault = True
+        async def down(): raise ConnectionError("no route to host")
+        with patch.object(self.r.providers["sports"],"fetch",down):
+            await self.r.refresh_provider("sports")
+            # one slow or failed reply is forgiven; an outage is only called one once it goes on
+            self.assertFalse(self.r.snapshots["sports"].stale)
+            self.assertEqual(self.r.snapshots["sports"].error, "no route to host")
+            for _ in range(2):
+                await self.r.refresh_provider("sports")
+        self.assertTrue(self.r.snapshots["sports"].stale)
+        await self.r.refresh_provider("sports")            # a good reply clears it at once
+        self.assertFalse(self.r.snapshots["sports"].stale)
+        original = self.r.snapshots["sports"]
+        self.r.provider_fault = True                       # the developer's simulated outage shows straight away
         await self.r.refresh_provider("sports")
         stale = self.r.snapshots["sports"]
         self.assertEqual(stale.data,original.data)

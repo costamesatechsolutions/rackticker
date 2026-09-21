@@ -31,6 +31,7 @@ INDICES = (("^GSPC", "S&P"), ("^DJI", "DOW"), ("^IXIC", "NAS"), ("^RUT", "R2K"),
 NEWS = "https://query1.finance.yahoo.com/v1/finance/search?q={}&quotesCount=0&newsCount=8"
 PAGE_SECONDS = 3.5
 TAPE_Y = 11
+BLOCK_PAUSE = .02
 # Company news is looked up a few symbols per refresh and kept this long.
 NEWS_SECONDS, NEWS_PER_REFRESH, NEWS_MAX_HOURS = 900, 6, 24
 NAME_SUFFIX = re.compile(r"[,.]?\s+(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings?|"
@@ -209,9 +210,14 @@ class FinanceProvider(Provider):
             if not indices and not rows:
                 raise ConnectionError("Finance feed returned no usable quotes")
             data = {"indices": indices, "tape": rows or indices}
-            # Build the tape image on a worker thread before publishing: rebuilding
-            # it inside a render is a visible hitch in the middle of the crawl.
-            await asyncio.to_thread(tape_strip, _key(data["tape"]))
+            # Draw the tape before publishing, a symbol at a time with a breath between: all at
+            # once held the interpreter long enough to stutter the crawl on screen, and
+            # rebuilding it inside a render is a hitch in the middle of the crawl.
+            key = _key(data["tape"])
+            for row in key:
+                tape_block(row)
+                await asyncio.sleep(BLOCK_PAUSE)
+            tape_strip(key)
             self.data = data
             self.cache_until = now + settings["refresh_seconds"]
         return Snapshot(self.data, source="finance_chart",
@@ -261,53 +267,69 @@ def _key(rows):
                  for row in rows)
 
 
+def _layout(row):
+    """Where each part of one symbol's block sits, relative to the block's left edge."""
+    symbol, price, change, delta, closes, previous, name, news = row
+    top, bottom = _price(price), _delta(delta)
+    pct = f"{change:+.2f}%"
+    label = text_width(symbol) + (5 + text_width(name) if name else 0)
+    c2 = max(label, text_width(top)) + 5
+    c3 = c2 + 7 + max(text_width(pct), text_width(bottom)) + 5
+    end = c3 + 24
+    if news:
+        end += 9 + max(text_width(news[0], 1, True), text_width(f"{news[1]} {news[2]}".strip()))
+    return top, bottom, pct, c2, c3, end
+
+
+@lru_cache(maxsize=96)
+def tape_block(row):
+    """One symbol's part of the tape: SYMBOL name / price, ▲+pct / +delta, an intraday
+    sparkline, then the company's latest headline when it has one. Cached by content,
+    so a refresh only draws what changed and the provider can draw them one at a time."""
+    symbol, price, change, delta, closes, previous, name, news = row
+    top, bottom, pct, c2, c3, end = _layout(row)
+    block = Image.new("RGB", (end + 8, 21))
+    draw = ImageDraw.Draw(block)
+    color = GREEN if change >= 0 else RED
+    draw_text(block, symbol, 0, 1, WHITE)
+    if name:
+        draw_text(block, name, text_width(symbol) + 5, 1, AMBER)
+    draw_text(block, top, 0, 12, (176, 196, 196))
+    triangle(block, c2, 3, change >= 0, color)
+    draw_text(block, pct, c2 + 7, 1, color)
+    draw_text(block, bottom, c2 + 7, 12, dim(color, .72))
+    if len(closes) > 1:
+        low, high = min(closes + (previous,)), max(closes + (previous,))
+        span = high - low or 1
+        if previous:
+            base = 18 - round((previous - low) * 17 / span)
+            for bx in range(c3, c3 + 24, 3):
+                draw.point((bx, base), fill=(60, 66, 66))
+        points = [(c3 + round(i * 23 / (len(closes) - 1)), 18 - round((v - low) * 17 / span))
+                  for i, v in enumerate(closes)]
+        draw.line(points, fill=color)
+    separator = c3 + 24 + 7
+    if news:
+        title, publisher, age = news
+        draw_text(block, title, c3 + 33, 1, WHITE, mixed=True)
+        draw_text(block, f"{publisher} {age}".strip(), c3 + 33, 12, MUTED)
+        separator = c3 + 33 + max(text_width(title, 1, True), text_width(f"{publisher} {age}".strip())) + 7
+    for y in range(3, 19, 2):
+        draw.point((separator, y), fill=(70, 58, 30))
+    return block
+
+
 @lru_cache(maxsize=4)
 def tape_strip(key):
-    """Two-deck tape: SYMBOL name / price, ▲+pct / +delta, an intraday
-    sparkline, then the company's latest headline when it has one."""
-    blocks, x = [], 0
-    for symbol, price, change, delta, closes, previous, name, news in key:
-        top, bottom = _price(price), _delta(delta)
-        pct = f"{change:+.2f}%"
-        label = text_width(symbol) + (5 + text_width(name) if name else 0)
-        c2 = x + max(label, text_width(top)) + 5
-        c3 = c2 + 7 + max(text_width(pct), text_width(bottom)) + 5
-        end = c3 + 24
-        if news:
-            end += 9 + max(text_width(news[0], 1, True), text_width(f"{news[1]} {news[2]}".strip()))
-        blocks.append((x, c2, c3, symbol, name, top, pct, bottom, change, closes, previous, news))
-        x = end + 15
+    """The whole tape, two decks: the symbols' blocks side by side. Cheap once the blocks exist."""
+    x, starts = 0, []
+    for row in key:
+        starts.append(x)
+        x += _layout(row)[5] + 15
     strip = Image.new("RGB", (max(128, x), 21))
-    starts = tuple(block[0] for block in blocks)
-    draw = ImageDraw.Draw(strip)
-    for x, c2, c3, symbol, name, top, pct, bottom, change, closes, previous, news in blocks:
-        color = GREEN if change >= 0 else RED
-        draw_text(strip, symbol, x, 1, WHITE)
-        if name:
-            draw_text(strip, name, x + text_width(symbol) + 5, 1, AMBER)
-        draw_text(strip, top, x, 12, (176, 196, 196))
-        triangle(strip, c2, 3, change >= 0, color)
-        draw_text(strip, pct, c2 + 7, 1, color)
-        draw_text(strip, bottom, c2 + 7, 12, dim(color, .72))
-        if len(closes) > 1:
-            low, high = min(closes + (previous,)), max(closes + (previous,))
-            span = high - low or 1
-            if previous:
-                base = 18 - round((previous - low) * 17 / span)
-                for bx in range(c3, c3 + 24, 3):
-                    draw.point((bx, base), fill=(60, 66, 66))
-            points = [(c3 + round(i * 23 / (len(closes) - 1)), 18 - round((v - low) * 17 / span))
-                      for i, v in enumerate(closes)]
-            draw.line(points, fill=color)
-        separator = c3 + 24 + 7
-        if news:
-            title, publisher, age = news
-            draw_text(strip, title, c3 + 33, 1, WHITE, mixed=True)
-            draw_text(strip, f"{publisher} {age}".strip(), c3 + 33, 12, MUTED)
-            separator = c3 + 33 + max(text_width(title, 1, True), text_width(f"{publisher} {age}".strip())) + 7
-        for y in range(3, 19, 2):
-            draw.point((separator, y), fill=(70, 58, 30))
-    return strip, starts
+    for start, row in zip(starts, key):
+        strip.paste(tape_block(row), (start, 0))
+    return strip, tuple(starts)
 
 
 class FinanceModule(Module):
@@ -315,6 +337,7 @@ class FinanceModule(Module):
 
     def __init__(self):
         self._strip = (None, None, ())
+        self.symbols = ()
         self.scene = None
         self.origin = 0
         self.position = 0
@@ -341,8 +364,31 @@ class FinanceModule(Module):
         # The provider hands over a new dict only when quotes refresh, so the
         # identity check avoids re-hashing every sparkline point each frame.
         if self._strip[0] is not data:
-            self._strip = (data, *tape_strip(_key(data["tape"])))
+            key = _key(data["tape"])
+            strip, starts = tape_strip(key)
+            self._reanchor(strip, starts, tuple(row[0] for row in key))
+            self._strip = (data, strip, starts)
         return self._strip[1], self._strip[2]
+
+    def _reanchor(self, strip, starts, symbols):
+        """New quotes change how wide each symbol is. Swapping the tape underneath a crawl
+        would make it jump, so keep whatever is at the left edge exactly where it is."""
+        old_strip, old_starts, old_symbols = self._strip[1], self._strip[2], self.symbols
+        self.symbols = symbols
+        if old_strip is None or not old_starts:
+            return
+        edge = self.position % old_strip.width
+        index = max((i for i, start in enumerate(old_starts) if start <= edge), default=0)
+        inside = edge - old_starts[index]
+        symbol = old_symbols[index] if index < len(old_symbols) else None
+        found = symbols.index(symbol) if symbol in symbols else min(index, len(starts) - 1)
+        width = starts[found + 1] - starts[found] if found + 1 < len(starts) else strip.width - starts[found]
+        wanted = starts[found] + min(inside, max(0, width - 1))
+        shift = (self.position - self.position % strip.width) + wanted - self.position
+        self.origin += shift
+        self.position += shift
+        if self.hold_until is not None:
+            self.hold_until += shift
 
     def _advance(self, context, strip, starts):
         """Tape position in pixels. Each visit resumes at the symbol that was on

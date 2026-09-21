@@ -10,6 +10,7 @@ RackTicker writes JSON lines to stdin, each naming its plugin:
   {"op": "unload", "plugin": "departures"}
   {"op": "configure", "plugin": "departures", "settings": {...}, "display": {...}}
   {"op": "render", "plugin": "departures", "t": 1.25, "now": 1726600000.0, "scene": 7}
+                    (sent a few frames ahead of the one on show; each is answered in turn)
   {"op": "validate", "plugin": "departures", "id": 3, "settings": {...}}
 This process answers on stdout with a 4-byte big-endian length, a JSON header
 and, for frames, 128×32×3 bytes of RGB; every header carries "plugin":
@@ -34,7 +35,11 @@ import threading
 import time
 import traceback
 
+from app.core import memory
+
 POLL_SECONDS, FETCH_TIMEOUT = 5, 6
+MAX_FRAMES_PER_BATCH = 8
+TRIM_SECONDS = 45
 DEFAULT_DISPLAY = {"fps": 30, "scroll_speed": 30, "scroll_gap": 32, "brightness": 85}
 
 
@@ -217,13 +222,22 @@ async def serve(folders):
     queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
     threading.Thread(target=reader, args=(loop, queue), daemon=True).start()
+    trimmed = time.monotonic()
     try:
         while True:
-            line = await queue.get()
+            try:
+                line = await asyncio.wait_for(queue.get(), TRIM_SECONDS)
+            except asyncio.TimeoutError:
+                memory.trim()          # quiet for a while: hand freed memory back
+                trimmed = time.monotonic()
+                continue
             if line is None:
                 break
+            if time.monotonic() - trimmed > TRIM_SECONDS:
+                trimmed = time.monotonic()
+                memory.trim()
             batch = [line]
-            while not queue.empty():  # take everything waiting, then answer only the newest renders
+            while not queue.empty():  # take everything waiting, then draw only the newest frames
                 batch.append(queue.get_nowait())
             renders = {}
             for item in batch:
@@ -239,12 +253,15 @@ async def serve(folders):
                 elif op == "unload":
                     await close_plugin(name)
                 elif op == "render":
-                    renders[name] = message
+                    renders.setdefault(name, []).append(message)
                 elif name in hosts:
                     _handle(hosts[name], message)
-            for name, message in renders.items():
+            # The display asks for a few frames ahead so a crawl never waits on a reply. If this
+            # process has fallen behind, the oldest requests are skipped rather than drawn late.
+            for name, messages in renders.items():
                 if name in hosts:
-                    hosts[name].render(message)
+                    for message in messages[-MAX_FRAMES_PER_BATCH:]:
+                        hosts[name].render(message)
     finally:
         for name in list(hosts):
             await close_plugin(name)

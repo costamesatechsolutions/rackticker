@@ -217,7 +217,10 @@ class ADSBIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(runtime.events), events)
                 (path / "aircraft.json").write_text("{bad json")
                 await runtime.refresh_provider("flight")
-                self.assertTrue(runtime.snapshots["flight"].stale)
+                self.assertFalse(runtime.snapshots["flight"].stale)      # one bad read is forgiven...
+                for _ in range(2):
+                    await runtime.refresh_provider("flight")
+                self.assertTrue(runtime.snapshots["flight"].stale)       # ...three in a row are not
                 self.assertEqual(runtime.snapshots["flight"].data.callsign, "REAL123")
                 self.assertFalse(runtime.modules["flight"].available(runtime.context()))
                 (path / "aircraft.json").write_text(json.dumps({"now": time.time(), "aircraft": []}))

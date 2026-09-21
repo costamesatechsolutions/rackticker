@@ -1,5 +1,5 @@
 import unittest
-from app.core.scheduler import Scheduler
+from app.core.scheduler import GONE_FINISH, GONE_GRACE, MIN_READ_SECONDS, Scheduler
 from app.core.playlist import PlaylistEntry
 from app.core.models import PriorityEvent
 
@@ -55,13 +55,38 @@ class SchedulerTests(unittest.TestCase):
         self.assertAlmostEqual(self.scheduler.current.elapsed, .1)
 
     def test_long_screen_is_interrupted_only_after_read_time(self):
-        self.scheduler.tick(8, self.eligible)
-        self.assertEqual(self.scheduler.current.module, "sports")
-        self.scheduler.interrupt(PriorityEvent("flight", 10, 20), defer=True)
-        self.scheduler.tick(7.5, self.eligible)
-        self.assertEqual(self.scheduler.current.module, "sports")
-        self.scheduler.tick(1, self.eligible)
-        self.assertEqual(self.scheduler.current.kind, "interrupt")
+        scheduler = Scheduler([PlaylistEntry("s", "sports", 60)])
+        scheduler.tick(0, {"s"})
+        scheduler.interrupt(PriorityEvent("flight", 10, 20), defer=True)
+        scheduler.tick(MIN_READ_SECONDS - .5, {"s"})
+        self.assertEqual(scheduler.current.module, "sports")
+        scheduler.tick(1, {"s"})
+        self.assertEqual(scheduler.current.kind, "interrupt")
+
+    def test_a_screen_that_blinks_out_is_not_snatched_from_the_reader(self):
+        """A feed that hiccups or a plugin that restarts must not cut the screen on show."""
+        scheduler = Scheduler([PlaylistEntry("a", "clock", 60), PlaylistEntry("b", "sports", 60)])
+        scheduler.tick(0, {"a", "b"})
+        scheduler.tick(GONE_GRACE - .5, set())
+        self.assertEqual(scheduler.current.module, "clock")
+        scheduler.tick(.1, {"a", "b"})                     # it came back
+        scheduler.tick(GONE_GRACE - .5, set())             # and blinked again: the count starts over
+        self.assertEqual(scheduler.current.module, "clock")
+        scheduler.tick(1, {"b"})                           # gone for good
+        self.assertEqual(scheduler.current.module, "sports")
+    def test_a_screen_with_nothing_new_still_finishes_what_it_is_showing(self):
+        """A plane leaves range halfway through its card: the card is finished, but not for ever."""
+        scheduler = Scheduler([PlaylistEntry("a", "flight", 60), PlaylistEntry("b", "sports", 60)])
+        scheduler.tick(0, {"a", "b"})
+        midway = lambda cursor: True
+        scheduler.tick(GONE_GRACE + 1, {"b"}, midway)
+        self.assertEqual(scheduler.current.module, "flight")
+        scheduler.tick(GONE_FINISH, {"b"}, midway)
+        self.assertEqual(scheduler.current.module, "sports")
+        scheduler = Scheduler([PlaylistEntry("a", "flight", 60), PlaylistEntry("b", "sports", 60)])
+        scheduler.tick(0, {"a", "b"})
+        scheduler.tick(GONE_GRACE + 1, {"b"}, lambda cursor: False)     # nothing left to finish
+        self.assertEqual(scheduler.current.module, "sports")
 
     def test_pause_preview_and_resume(self):
         self.scheduler.paused = True
@@ -75,7 +100,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertFalse(self.scheduler.paused)
 
     def test_all_disabled_then_reenabled(self):
-        self.scheduler.tick(1,set())
+        self.scheduler.tick(GONE_GRACE,set())
         self.assertIsNone(self.scheduler.current)
         self.scheduler.tick(0,{"b"})
         self.assertEqual(self.scheduler.current.module,"sports")

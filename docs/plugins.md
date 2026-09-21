@@ -60,12 +60,18 @@ entry to [`community/index.json`](../community/index.json):
 Installed plugins run outside the display's process: one process per plugin, or,
 on machines with under 1.5 GB of memory (a Pi 3 has 512 MB), one process shared by
 all installed plugins (`RACKTICKER_SANDBOX=shared` or `separate` to choose):
-- The display never waits for them. RackTicker asks for a frame and shows the
-  newest one it has; a slow plugin only makes its own screen late.
-- A crash, a hang (no answer for 6 s) or growing past its memory budget restarts
-  the process, with a backoff; in shared mode the plugin responsible is named and
-  the others simply come back. Five failures in ten minutes switch a plugin off
-  and the Plugins page shows why.
+- The display never waits for them. An animated screen is drawn a few frames
+  (four) ahead of the one on show, and the display shows the frame whose moment
+  has come, so a late reply never shows as a hitch in a crawl; a slow plugin
+  only makes its own screen late. Because of that, `render()` must depend only on
+  its `context` (`animation_time`, `now`, `scene`, settings and snapshots), never
+  on how many times it has been called or on `time.time()`. The previous screen
+  stays up until a plugin's first frame is ready, so there is no black frame
+  between screens.
+- A crash, a hang (nothing heard from the process for 10 s while it owes a frame)
+  or growing past its memory budget restarts the process, with a backoff; in
+  shared mode the plugin responsible is named and the others simply come back.
+  Five failures in ten minutes switch a plugin off and the Plugins page shows why.
 - It runs at lower CPU priority, with a clean environment (no service
   credentials) and its own data folder as `HOME`.
 - It sees its own settings and data only, not other plugins' data.

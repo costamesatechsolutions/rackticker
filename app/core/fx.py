@@ -62,7 +62,9 @@ def hsv(h, s=1.0, v=1.0):
 
 
 def dim(color, amount):
-    return tuple(max(0, min(255, round(channel * amount))) for channel in color)
+    r, g, b = color
+    return (max(0, min(255, round(r * amount))), max(0, min(255, round(g * amount))),
+            max(0, min(255, round(b * amount))))
 
 
 def mix(a, b, t):
@@ -73,10 +75,13 @@ def mix(a, b, t):
 def plot(frame, pixels, x, y, color):
     """Max-blend one pixel so overlapping light adds up like real LEDs."""
     x, y = math.floor(x), math.floor(y)
-    width, height = frame.size
-    if 0 <= x < width and 0 <= y < height:
+    if x < 0 or y < 0:
+        return
+    try:
         old = pixels[x, y]
-        pixels[x, y] = (max(old[0], color[0]), max(old[1], color[1]), max(old[2], color[2]))
+    except IndexError:              # off the right or bottom edge of the picture
+        return
+    pixels[x, y] = (max(old[0], color[0]), max(old[1], color[1]), max(old[2], color[2]))
 
 
 # --- sprites -----------------------------------------------------------------

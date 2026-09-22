@@ -79,6 +79,8 @@ STREET_Y, TRUCK_X = 25, 150
 # back into one, so none of them ever drives onto the sand or down the railway.
 ROAD_L, ROAD_R = BEACH_END - 1, TOWN_END - 18        # where a car is fully inside a portal
 PORTAL_WEST, PORTAL_EAST = (BEACH_END - 1, BEACH_END + 13), (TOWN_END - 18, TOWN_END - 9)
+SIGN_SECONDS = 6.0                                   # how long a rooftop sign holds one message
+PLATFORM_CROWD = 4                                   # more than this on a platform is a queue, not a station
 PEOPLE_EAST = TOWN_END - 12                          # the town's walkers turn back here
 BUS_STOP_X = 244
 TREES, BENCH_X = (119, 180, 206, 260), 240   # street trees, and a bench with somebody on it
@@ -94,9 +96,6 @@ UMBRELLAS = ((220, 60, 50), (60, 140, 240), (250, 200, 60), (80, 200, 120))
 HORIZON = 18                 # the sea's far edge; sky above it
 PIER_END, PIER_Y = 26, 21    # a pier out over the water at the far end
 SAND_ROW = 31                # people on the beach walk along the bottom of it
-# Waves arrive with a little more size further along the beach, so they break
-# across it rather than all at once.
-SHOAL = tuple(1.5 + .9 * (x / (BEACH_END - 1)) for x in range(BEACH_END))
 PALMS = (56, 92)             # rooted in the dry sand
 TOWER_X, UMBRELLA_X = 74, 40
 # How much light there is on the beach. The sea and the sand take the evening
@@ -213,6 +212,36 @@ def water_gradient(row, shade_of_light):
     return tuple(mix(deep, shallow, (y - HORIZON) / span) for y in range(HORIZON, row + 1))
 
 
+@lru_cache(maxsize=32)
+def beach_backdrop(base, shade_of_light):
+    """The beach with the water at rest: sea from the horizon down to `base`, then the wet
+    sand and the dry. The waves are drawn over this, so the whole of it is one paste."""
+    light = shade_of_light / 32
+    image = Image.new("RGB", (BEACH_END, 32 - HORIZON))
+    draw = ImageDraw.Draw(image)
+    dry, wet = dim((214, 190, 138), light), dim((162, 136, 98), light)
+    for y, colour in enumerate(water_gradient(base, shade_of_light), 0):
+        draw.line((0, y, BEACH_END - 1, y), fill=colour)
+    for y in range(base + 1, 32):
+        draw.line((0, y - HORIZON, BEACH_END - 1, y - HORIZON), fill=wet if y - base <= 2 else dry)
+    return image
+
+
+@lru_cache(maxsize=32)
+def wave_palette(base, shade_of_light):
+    """The colours the waves are drawn in: for each row of the sea a bright crest, its paler
+    face and a faint ripple, all lit to match the water there, plus foam and wet sand."""
+    light = shade_of_light / 32
+    water = water_gradient(base, shade_of_light)
+    white = dim((232, 248, 254), max(.34, light))
+    crest = tuple(mix(colour, white, .55) for colour in water)
+    face = tuple(mix(colour, white, .2) for colour in water)
+    ripple = tuple(mix(colour, white, .17) for colour in water)
+    return {"crest": crest, "face": face, "ripple": ripple, "foam": white,
+            "spray": mix(white, water[-1], .35), "shallow": mix(water[-1], white, .3),
+            "wet": dim((162, 136, 98), light), "dark": dim((132, 110, 80), light)}
+
+
 @lru_cache(maxsize=4)
 def skyline(bucket):
     hour = bucket / 12
@@ -255,47 +284,67 @@ def skyline(bucket):
     return layer
 
 
-class Sea:
-    """A row of springs, each pulling on its neighbours: the cheapest thing that
-    behaves like water. Swell is pushed in at the seaward edge and travels toward
-    the sand, so crests move and break on the shore rather than sliding past as a
-    drawn sine would."""
+def runup(u):
+    """How far up the sand the water has run (0 to 1) when the swell is `u` of the way in.
 
-    STIFFNESS, DAMPING, SPREAD = 6.0, .14, 140.0
+    Quiet while the wave is still out at sea, then it arrives and surges up the sand, then
+    drains back off it: continuous through the moment the next wave is born at the horizon."""
+    if u > .84:
+        s = (u - .84) / .16
+        return s * s * (3 - 2 * s)
+    if u < .3:
+        s = 1 - u / .3
+        return s * s
+    return 0.0
+
+
+class Sea:
+    """Waves that come in from the horizon towards you and break on the sand.
+
+    Looking out from the beach, the sea is the band above and the sand the band below, and
+    what moves is the swell: a crest is born at the horizon, comes down the band getting
+    bigger and brighter, breaks into foam, runs up the sand and drains back as the next one
+    arrives. Every column is a little behind its neighbour, so the crest is slanted and
+    peels along the shore instead of hitting it all at once. The real swell sets the pace
+    and how far up the sand the water runs; a finer chop, out of step with it, runs in
+    between so the water never looks like one thing on a loop."""
+
+    CHOP = 5.5      # seconds for a ripple to cross the sea
 
     def __init__(self, width=BEACH_END):
-        self.height = [0.0] * width
-        self.speed = [0.0] * width
-        self.clock = 0.0
+        self.width = width
+        self.phase = self.chop = self.clock = 0.0
+        self.period, self.size = 9.0, 1.3
+        # How late the swell reaches each column, and a slow wobble in the line of it.
+        self.slant = tuple(x / width * .11 + .03 * math.sin(x * .19) for x in range(width))
+        self.ripple = tuple(.05 * math.cos(x * .13) - x / width * .07 for x in range(width))
         self.prime()
 
     def prime(self, size=1.4):
-        """Start with a sea already running, so the beach is never flat calm for
-        the first few seconds of a visit."""
-        for x in range(len(self.height)):
-            phase = x / 26.0 * math.tau
-            self.height[x] = math.sin(phase) * size
-            self.speed[x] = math.cos(phase) * size * 2.0
+        """Start with a sea already running, so the beach is never flat calm at first."""
+        self.phase, self.chop, self.size = .35, .2, size
 
     def step(self, dt, period, size):
-        # Small fixed steps: one long frame must not blow the springs apart.
-        dt = min(dt, .1)
-        beat = min(4.0, max(1.5, period / 4))
-        while dt > 1e-4:
-            slice_dt = min(dt, 1 / 45)
-            dt -= slice_dt
-            self.clock += slice_dt
-            height, speed, last = self.height, self.speed, len(self.height) - 1
-            for i in range(last + 1):
-                left = height[i - 1] if i else height[0]
-                right = height[i + 1] if i < last else height[last]
-                speed[i] += (-self.STIFFNESS * height[i] - self.DAMPING * speed[i]
-                             + (left + right - 2 * height[i]) * self.SPREAD) * slice_dt
-            for i in range(last + 1):
-                height[i] += speed[i] * slice_dt
-            # The wavemaker at the seaward edge, kept to the real swell's pace.
-            height[0] = math.sin(self.clock / beat * math.tau) * size
-            height[1] = math.sin((self.clock - .06) / beat * math.tau) * size
+        dt = min(dt, .2)
+        self.period, self.size = min(14.0, max(6.0, period)), size
+        self.phase = (self.phase + dt / self.period) % 1.0
+        self.chop = (self.chop + dt / self.CHOP) % 1.0
+        self.clock += dt
+
+    def swell(self, x):
+        """How far in the swell is at this column: 0 at the horizon, 1 as it reaches the sand."""
+        return (self.phase - self.slant[max(0, min(self.width - 1, int(x)))]) % 1.0
+
+    def amplitude(self):
+        return 1.1 + self.size * 1.1
+
+    def edge(self, level, x):
+        """The row the water reaches at this column: further up the sand as a wave arrives."""
+        return min(31.5, level + self.amplitude() * runup(self.swell(x)))
+
+    def rise(self, x):
+        """The water's own rise and fall under something floating in it, -1 to 1."""
+        return math.sin(self.swell(x) * math.tau)
 
 
 def tide_level(tide, now):
@@ -327,19 +376,29 @@ def tide_level(tide, now):
 class Camera:
     """The panel is a window onto a town twice its width.
 
-    It does not sweep back and forth on a timer, which reads as a machine. It
-    settles on somewhere worth watching, stays while there is something to see,
-    and glides on — and it gives way to anything that turns up, like a cat."""
+    It does not sweep back and forth on a timer, which reads as a machine, and it does not
+    hop between places, which leaves you wondering what you were looking at. Mostly it
+    follows somebody: a person on their way to the taco truck, a traveller heading for the
+    platform, a walker doing the length of the street. It keeps them just off centre, ahead
+    of them in the direction they are going, glides on with them and hands over to somebody
+    else when they go into a shop or get on a train. It gives way to anything that turns
+    up, like a cat or a train coming in."""
 
-    EASE, ARRIVED = 1.8, 1.0      # how briskly it glides, and what counts as there
-    DWELL = (7.0, 13.0)           # how long it watches one place
+    STIFFNESS = 5.0               # a critically damped spring: no overshoot, no snap
+    TOP_SPEED = 55.0              # the fastest it ever pans, px/s
+    ARRIVED = 1.0                 # how close counts as there
+    DWELL = (6.0, 11.0)           # how long it watches one place when it is not following anyone
+    FOLLOW = (9.0, 17.0)          # how long it stays with one person
+    LEAD = 16.0                   # how far ahead of them it looks
 
     def __init__(self, rng):
         self.rng = rng
         self.limit = float(WORLD - VIEW)
         self.x = self.target = min(self.limit, max(0.0, TRUCK_X - VIEW / 2))
-        self.dwell = rng.uniform(*self.DWELL)
+        self.v = 0.0
+        self.dwell = rng.uniform(1.0, 3.0)
         self.view = round(self.x)   # the town x drawn at the panel's left edge
+        self.subject, self.follow_for, self.hold, self.lead = None, 0.0, 0.0, 0.0
 
     def look_at(self, centre, urgent=False):
         """Frame something at this point in town."""
@@ -347,18 +406,62 @@ class Camera:
         if urgent or abs(wanted - self.target) > 8:
             self.target = wanted
             if urgent:
+                self.subject = None
+                self.hold = 6.0
                 self.dwell = max(self.dwell, 6.0)
 
-    def step(self, dt, interests):
-        self.dwell -= dt
-        if self.dwell <= 0 and abs(self.x - self.target) < self.ARRIVED:
-            choices = [spot for spot in interests if abs(spot - (self.x + VIEW / 2)) > VIEW / 3]
-            if choices:
-                self.look_at(self.rng.choice(choices))
-            self.dwell = self.rng.uniform(*self.DWELL)
-        # Eased, frame-rate independent: fast at first, gentle as it arrives.
-        self.x += (self.target - self.x) * min(1.0, self.EASE * dt)
-        self.view = round(max(0.0, min(self.limit, self.x)))
+    @staticmethod
+    def worth_following(person):
+        return person["inside"] <= 0 and not person.get("gone") and person["board"] is None \
+            and not person.get("waits_bus") and 4 < person["x"] < WORLD - 4
+
+    def choose(self, people):
+        """Somebody going somewhere, near enough to be worth the trip, preferring those with a purpose."""
+        centre = self.x + VIEW / 2
+        options = []
+        for person in people:
+            if not self.worth_following(person) or not person["moving"] or abs(person["x"] - centre) > 120:
+                continue
+            purpose = 3 if (person["hungry"] and not person["fed"]) or person["traveller"] else 1
+            options.extend([person] * purpose)
+        return self.rng.choice(options) if options else None
+
+    def step(self, dt, interests, people=()):
+        if self.hold > 0:
+            self.hold -= dt
+        person = self.subject
+        if person is not None:
+            self.follow_for -= dt
+            if self.follow_for <= 0 or not self.worth_following(person) or not any(p is person for p in people):
+                self.subject = person = None
+                self.dwell = self.rng.uniform(1.5, 3.5)
+        if person is not None:
+            # Look where they are going, easing in to it so a turn does not swing the view.
+            ahead = person["dir"] * self.LEAD if person.get("moving") else 0.0
+            self.lead += (ahead - self.lead) * min(1.0, dt * 1.2)
+            self.target = min(self.limit, max(0.0, person["x"] + self.lead - VIEW / 2))
+        elif self.hold <= 0:
+            self.dwell -= dt
+            settled = abs(self.x - self.target) < self.ARRIVED * 4 and abs(self.v) < 6
+            if self.dwell <= 0 and settled:
+                chosen = self.choose(people) if self.rng.random() < .8 else None
+                if chosen is not None:
+                    self.subject, self.lead = chosen, 0.0
+                    self.follow_for = self.rng.uniform(*self.FOLLOW)
+                else:
+                    centre = self.x + VIEW / 2
+                    choices = [spot for spot in interests if abs(spot - centre) > VIEW / 3]
+                    if choices:
+                        self.look_at(self.rng.choice(choices))
+                    self.dwell = self.rng.uniform(*self.DWELL)
+        # A critically damped spring towards the target, with a top speed.
+        stiffness = self.STIFFNESS
+        self.v += (stiffness * (self.target - self.x) - 2 * math.sqrt(stiffness) * self.v) * dt
+        self.v = max(-self.TOP_SPEED, min(self.TOP_SPEED, self.v))
+        self.x += self.v * dt
+        if self.x < 0 or self.x > self.limit:
+            self.x, self.v = max(0.0, min(self.limit, self.x)), 0.0
+        self.view = round(self.x)
         return self.view
 
 
@@ -399,7 +502,7 @@ class Town(Module):
     def _spawn_person(self, x=None, direction=None):
         direction = direction or self.rng.choice((-1, 1))
         self.people.append({"x": x if x is not None else (-4.0 if direction > 0 else WORLD + 3.0), "dir": direction,
-                            "speed": self.rng.uniform(5, 10), "shirt": self.rng.choice(SHIRTS),
+                            "speed": self.rng.uniform(7, 12), "shirt": self.rng.choice(SHIRTS),
                             "skin": self.rng.choice(SKINS), "hungry": self.rng.random() < .45,
                             "pause": 0.0, "fed": False, "dog": self.rng.random() < .08,
                             "slot": None, "carry": 0.0, "board": None,
@@ -407,7 +510,12 @@ class Town(Module):
                             "inside": 0.0, "bag": 0.0, "visited": set(),
                             # A few of them are going somewhere: they wait on the
                             # platform and get on the train when it opens its doors.
-                            "traveller": self.rng.random() < .3})
+                            "traveller": self.rng.random() < .3 and self._waiting() < PLATFORM_CROWD,
+                            "stride": self.rng.uniform(0, 3), "moving": False, "_x0": 0.0})
+
+    def _waiting(self):
+        """How many people are on their way to the platform, or waiting on it, for a train."""
+        return sum(1 for p in self.people if p["traveller"])
 
     def _spawn_bus(self):
         """A shuttle comes out of the west portal and heads for the stop. The people
@@ -493,8 +601,7 @@ class Town(Module):
         x = person["x"]
         if x >= BEACH_END - 16:
             return
-        wash = self._wash(self.level)
-        wet = 0 <= x < len(wash) and wash[int(x)] >= 29.5
+        wet = 0 <= x < BEACH_END and self.sea.edge(self.level, x) >= 29.5
         if (not beach_open or wet) and person["dir"] < 0:
             person["dir"] = 1
             person["home"] = person.get("home") or not beach_open     # and after dark, go home
@@ -659,12 +766,11 @@ class Town(Module):
         size = min(2.6, max(.5, float(height) / 2.6)) if isinstance(height, (int, float)) else 1.3
         self.sea.step(dt, float(period) if isinstance(period, (int, float)) and period else 9.0, size)
         surfer = self.surfer
-        column = max(0, min(BEACH_END - 1, int(surfer["x"])))
         if surfer["ride"] > 0:
             surfer["ride"] -= dt
             surfer["x"] = min(BEACH_END - 6.0, surfer["x"] + 15 * dt)
-        elif self.sea.height[column] > size * .8 and self.sea.speed[column] < 0:
-            surfer["ride"] = self.rng.uniform(1.6, 2.8)     # up, and away with it
+        elif .5 < self.sea.swell(surfer["x"]) < .62 and surfer["x"] < 40:
+            surfer["ride"] = self.rng.uniform(1.6, 2.8)     # a wave is coming: up, and away with it
         else:                                               # paddle back out the back
             surfer["x"] += (26.0 - surfer["x"]) * min(1.0, dt * .5)
 
@@ -686,6 +792,7 @@ class Town(Module):
             self._spawn_person(direction=None if beach_open else -1)   # after dark they come in from the station
             self.people_wait = rng.uniform(1.2, 5) / max(.12, busy)
         for person in self.people:
+            person["_x0"] = person["x"]
             if person["carry"] > 0:
                 person["carry"] -= dt
             if person["bag"] > 0:
@@ -719,6 +826,12 @@ class Town(Module):
             # goes on through the door in it; everyone else has had enough and turns back.
             if person["dir"] > 0 and PEOPLE_EAST <= person["x"] < TOWN_END and not person["traveller"]:
                 person["dir"] = -1
+        for person in self.people:
+            # Feet follow the ground: a person's stride is the distance they have covered,
+            # so they step when they move and stand still when they stand.
+            moved = abs(person["x"] - person.get("_x0", person["x"]))
+            person["stride"] = person.get("stride", 0.0) + moved
+            person["moving"] = moved > dt * .8
         self.people = [p for p in self.people if -8 < p["x"] < WORLD + 8 and not p.get("gone")]
         self.car_wait -= dt
         if self.car_wait <= 0:
@@ -796,7 +909,7 @@ class Town(Module):
         self._sea_step(dt, surf)
         self.board = self._departure(context, now)
         self._look_at_train()
-        view = self.camera.step(dt, self._interests(hour))
+        view = self.camera.step(dt, self._interests(hour), self.people)
         left, right = view, view + VIEW
         frame = sky_image(math.floor(hour * 60)).copy()
         draw = ImageDraw.Draw(frame)
@@ -989,6 +1102,9 @@ class Town(Module):
 
     @staticmethod
     def _sign(frame, draw, now, weather, t, town_name, view=0):
+        """The rooftop signs. They are part of the town, drawn where they stand whether or not
+        the camera can see all of one: a sign that only existed while it fitted the panel
+        popped into being and out again as the view panned."""
         items = [f"{now.hour % 12 or 12}:{now.minute:02d}"]
         if "temperature" in weather:
             items.append(f"{weather['temperature']}°")
@@ -997,17 +1113,22 @@ class Town(Module):
         sign_width = max(tiny_width(item) for item in (*items, "12:59", "100°")) + 6
         for turn, (x, width, top, _, _) in enumerate(SIGNS):
             # Each sign a step along, so two in view at once never say the same thing.
-            text = items[(math.floor(t / 6) + turn) % len(items)]
+            count = math.floor(t / SIGN_SECONDS) + turn
+            text, previous = items[count % len(items)], items[(count - 1) % len(items)]
+            local = t % SIGN_SECONDS
             sx = max(0, min(WORLD - 1 - sign_width, x + width // 2 - sign_width // 2))
-            # Half a sign at the edge of the panel reads as a fault, so a sign the
-            # camera cannot show whole is not drawn at all.
-            if sx < view or sx + sign_width > view + VIEW:
-                continue
             draw.rectangle((sx, top - 9, sx + sign_width - 1, top - 2), fill=(16, 14, 18), outline=(70, 60, 40))
             # Its legs stand on its own roof, even when the sign is wider than the building.
             for leg in (max(sx + 2, x + 1), min(sx + sign_width - 3, x + width - 2)):
                 draw.line((leg, top - 1, leg + 1, top - 1), fill=(70, 60, 40))
-            draw_tiny(frame, text, sx + sign_width // 2 - tiny_width(text) // 2, top - 8, (255, 176, 20))
+            # A new message rolls up into place like a flip board, not a cut.
+            roll = min(1.0, local / .3) if math.floor(t / SIGN_SECONDS) + turn > 0 else 1.0
+            window = Image.new("RGB", (sign_width - 2, 6))
+            up = round(roll * 6)                       # how far the old message has rolled off the top
+            if roll < 1:
+                draw_tiny(window, previous, (sign_width - 2) // 2 - tiny_width(previous) // 2, -up, (255, 176, 20))
+            draw_tiny(window, text, (sign_width - 2) // 2 - tiny_width(text) // 2, 6 - up, (255, 176, 20))
+            frame.paste(window, (sx + 1, top - 8))
 
     def _street(self, frame, draw, pixels, night, hour, t, left, right):
         """The town's own ground: pavement, shopfronts and road, between the sea
@@ -1103,35 +1224,65 @@ class Town(Module):
             plot(frame, pixels, nx + 1, ny - 2, dim(colour, fade * .8))
 
     def _wash(self, level):
-        """The row the water reaches in each column: the edge of the wash.
-
-        Looking along a beach, the sea is the band above and the sand the band
-        below, and what moves is the line between them — the wave running up the
-        sand and draining back off it."""
-        height, shoal = self.sea.height, SHOAL
-        return [level + height[x] * shoal[x] for x in range(BEACH_END)]
+        """The row the water reaches in each column: the edge of the wash."""
+        sea = self.sea
+        return [sea.edge(level, x) for x in range(BEACH_END)]
 
     def _beach(self, frame, draw, pixels, night, level, t, left, right, light=1.0, moon=None):
-        """Sea above, sand below, and the wash line moving between them."""
+        """Sea above, sand below, and the swell coming in between."""
         if left >= BEACH_END:
             return
-        dry, wet = dim((214, 190, 138), light), dim((162, 136, 98), light)
         shade_of_light = round(light * 32)          # the water's colours are cached by this
-        foam = dim((232, 248, 254), max(.34, light))
-        wash, speed = self._wash(level), self.sea.speed
-        for x in range(max(0, left), min(BEACH_END, right)):
-            edge = wash[x]
-            row = max(HORIZON, min(31, int(round(edge))))
-            # Darker out towards the horizon, lighter in the shallows: what makes a
-            # flat band of blue read as water going away from you.
-            for y, colour in enumerate(water_gradient(row, shade_of_light), HORIZON):
-                pixels[x, y] = colour
-            for y in range(row + 1, 32):
-                # Sand the last wave reached is still wet, and dries as it goes up.
-                pixels[x, y] = wet if y - edge < 2.2 else dry
-            pixels[x, row] = foam
-            if speed[x] > 4.5 and row - 2 >= HORIZON:      # a crest breaking further out
-                pixels[x, row - 2] = foam
+        base = max(HORIZON + 4, min(29, int(round(level))))
+        frame.paste(beach_backdrop(base, shade_of_light), (0, HORIZON))
+        palette = wave_palette(base, shade_of_light)
+        crest, face, ripple = palette["crest"], palette["face"], palette["ripple"]
+        foam, spray, shallow, wet = palette["foam"], palette["spray"], palette["shallow"], palette["wet"]
+        sea = self.sea
+        first, last = max(0, left), min(BEACH_END, right)
+        columns = range(first, last)
+        us = [(sea.phase - sea.slant[x]) % 1.0 for x in columns]
+        amplitude = sea.amplitude()
+        big = sea.size > 1.9
+        span, top = base - HORIZON - 1.5, HORIZON + 1
+        wash = [0.0] * BEACH_END
+        for x, u in zip(columns, us):
+            edge = min(31.5, level + amplitude * runup(u))
+            wash[x] = edge
+            row = int(edge + .5)
+            if row > base:                  # a wave has run up the sand: water, then a line of foam
+                for y in range(base + 1, min(31, row)):
+                    pixels[x, y] = shallow
+                if row <= 31:
+                    pixels[x, row] = foam
+                for y in (row + 1, row + 2):
+                    if base + 2 < y <= 31:
+                        pixels[x, y] = wet
+            elif row < base:                # the water has drawn back: the sand is wet where it was
+                for y in range(row + 1, base + 1):
+                    pixels[x, y] = wet
+                pixels[x, row] = spray
+            # The swell itself: a crest from the horizon, brighter and lower as it comes in.
+            if u < .86:
+                y = int(top + span * (u / .86) ** 1.4 + .5)
+                if u > .68 and (sea.clock * 2.4 + x * .5) % 5.0 < 3.4:
+                    pixels[x, y] = foam      # breaking, in a run that peels along the crest
+                    if y + 1 <= base:
+                        pixels[x, y + 1] = spray
+                else:
+                    pixels[x, y] = crest[y - HORIZON]
+                    if y + 1 <= base:
+                        pixels[x, y + 1] = face[y + 1 - HORIZON]
+                    if big and y > top + 1:
+                        pixels[x, y - 1] = face[y - 1 - HORIZON]
+        # Chop: two fainter ripples across the sea, out of step with the swell.
+        span_c = base - HORIZON - 2
+        for k in (0, .5):
+            for x in columns:
+                c = (sea.chop + k - sea.ripple[x]) % 1.0
+                y = int(top + span_c * c ** 1.25 + .5)
+                if y < base and y < wash[x] - 1:
+                    pixels[x, y] = ripple[y - HORIZON]
         if moon is not None:
             self._moonlight(pixels, moon, wash, t, left, right)
         if light >= .5 and not self.wet and 8 <= self._hour < 17.5:
@@ -1147,7 +1298,7 @@ class Town(Module):
             self._ship(frame, pixels, self.ship, night, light, t)
         self._boat(frame, pixels, level, night, t)
         self._pier(frame, draw, pixels, night, left, right, light)
-        self._surfer(frame, pixels, wash, night)
+        self._surfer(frame, pixels, level, base, night)
 
     @staticmethod
     def _ship(frame, pixels, ship, night, light, t):
@@ -1214,7 +1365,7 @@ class Town(Module):
         """A little sailboat out past the break, riding whatever the sea is doing."""
         x = PIER_END + 12 + math.sin(t * .09) * 10
         column = max(0, min(BEACH_END - 1, int(x)))
-        base = int(round(level + self.sea.height[column] * SHOAL[column])) - 3
+        base = int(round(level - 3.5 + self.sea.rise(column) * .7))
         if base < HORIZON + 1 or base > 29:
             return
         hull = (40, 44, 56) if night else (52, 58, 76)
@@ -1230,11 +1381,16 @@ class Town(Module):
             for spread in range(1, (5 - row) // 2 + 1):
                 paint(frame, pixels, round(x) + lean + spread, top, sail)
 
-    def _surfer(self, frame, pixels, wash, night):
+    def _surfer(self, frame, pixels, level, base, night):
         """Sitting out the back until a wave comes, then up and riding it in."""
-        surfer = self.surfer
+        surfer, sea = self.surfer, self.sea
         column = max(0, min(BEACH_END - 1, int(surfer["x"])))
-        x, y = round(surfer["x"]), int(round(wash[column])) - 2
+        x = round(surfer["x"])
+        if surfer["ride"] > 0:     # on the face of the wave, wherever its crest has got to
+            u = min(.84, sea.swell(column))
+            y = int(HORIZON + 1 + (base - HORIZON - 1.5) * (u / .86) ** 1.4 + .5) - 1
+        else:                      # out the back, rising and falling with the swell
+            y = HORIZON + 5 + round(sea.rise(column) * .6)
         if y < HORIZON or y > 30:
             return
         board = (170, 160, 60) if night else (250, 240, 60)
@@ -1506,19 +1662,34 @@ class Town(Module):
     @staticmethod
     def _person(frame, pixels, person, t, ground=STREET_Y, wet=False):
         x = round(person["x"])
-        step = person["slot"] is None and person["pause"] <= 0 and math.floor(t * 6 + person["speed"]) % 2
-        top = ground - 5
+        moving = person.get("moving", False)
+        # One step every 1.6 px of ground covered. Passing (legs together) is a pixel taller
+        # than contact (legs apart), and the arms swing the other way to the legs.
+        phase = math.floor(person.get("stride", 0.0) / 1.6) % 2 if moving else 0
+        lift = 1 if moving and phase else 0
+        top = ground - 5 - lift
+        facing = person["dir"]
         plot(frame, pixels, x + 1, top, person["skin"])
         # A solid two-row body. One row over a single pixel drew a plus sign, which
         # is what a person a few pixels tall looks like when you skimp on the middle.
         for row in (top + 1, top + 2):
             for dx in range(3):
                 plot(frame, pixels, x + dx, row, person["shirt"])
+        if moving:
+            swing = dim(person["shirt"], .72)
+            forward, back = (x + 3, x - 1) if facing > 0 else (x - 1, x + 3)
+            plot(frame, pixels, forward if phase else back, top + 2, swing)
+        else:
+            # Standing about: now and then a hand goes up to check the time.
+            beat = (t + person["speed"] * 1.7) % 6.0
+            if beat < .8:
+                hand = x + (3 if facing > 0 else -1)
+                plot(frame, pixels, hand, top + 1, person["skin"])
         for sx in range(3):   # a shadow at their feet is what puts them on the ground
-            shade(frame, pixels, x + sx, top + 5)
-        legs = ((x, x + 2) if not step else (x + 1,))
+            shade(frame, pixels, x + sx, ground)
+        legs = ((x, x + 2) if not phase else (x + 1,))
         for lx in legs:   # darker than the pavement, or the legs disappear into it
-            for row in (top + 3, top + 4):
+            for row in (top + 3, top + 4) if not lift else (top + 3, top + 4, top + 5):
                 if 0 <= lx < frame.size[0]:
                     pixels[lx, row] = (26, 26, 38)
         if person["carry"] > 0:   # walking away with the taco they just paid for

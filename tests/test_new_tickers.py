@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import unittest
 
+from PIL import Image
+
 from app.core.config import validate_config
 from app.core.models import Snapshot, Message, SystemStatus
 from app.core.plugins import PluginRegistry
@@ -215,14 +217,45 @@ class PixelTownDistrictsTests(unittest.TestCase):
         self.assertLess(high, low)
         self.assertAlmostEqual(TOWN.tide_level(None, now), (high + low) / 2, places=5)
 
-    def test_a_wave_moves_the_wash_line_instead_of_standing_still(self):
+    def test_a_wave_arrives_runs_up_the_sand_and_drains_back(self):
         town = TOWN.Town()
         town.sea.prime(1.6)
-        seen = set()
-        for _ in range(90):
+        seen = []
+        for _ in range(int(9.5 * 30)):                # one whole swell
             town._sea_step(1 / 30, {"height": 4.0, "period": 9.0})
-            seen.add(round(town._wash(25.4)[40], 1))
-        self.assertGreater(len(seen), 8, "the water never moved")
+            seen.append(town._wash(25.4)[40])
+        self.assertLess(min(seen), 25.6, "the water never drew back")
+        self.assertGreater(max(seen), 27.5, "the wave never ran up the sand")
+        self.assertGreater(len({round(v, 1) for v in seen}), 20, "the water jumped instead of running")
+
+    def test_the_swell_comes_in_towards_the_sand_it_does_not_slide_along_the_beach(self):
+        """Waves that rolled from one end of the beach to the other looked like the whole ocean was
+        moving sideways. A crest is a line parallel to the shore, and what moves is its distance."""
+        sea = TOWN.Sea()
+        rows = []
+        for _ in range(60):
+            sea.step(1 / 30, 9.0, 1.4)
+            rows.append([TOWN.HORIZON + 1 + 6 * (sea.swell(x) / .86) ** 1.4 for x in (5, 50, 100)])
+        # at any moment the crest is nearly level across the beach...
+        for row in rows:
+            self.assertLess(max(row) - min(row), 1.6)
+        # ...and from moment to moment it moves down the panel (towards the sand)
+        for column in range(3):
+            path = [row[column] for row in rows if row[column] < 24]
+            self.assertTrue(all(b >= a for a, b in zip(path, path[1:])), "the crest went backwards")
+            self.assertGreater(path[-1] - path[0], 1)
+
+    def test_a_beach_frame_shows_crests_as_well_as_the_backdrop(self):
+        town = TOWN.Town()
+        town.sea.prime(1.6)
+        frames = set()
+        for _ in range(60):
+            town._sea_step(1 / 30, None)
+            frame = TOWN.sky_image(600).copy()
+            town._hour = 13.0
+            town._beach(frame, TOWN.ImageDraw.Draw(frame), frame.load(), False, 25.4, 0.0, 0, 128, 1.0)
+            frames.add(frame.crop((0, 18, 104, 32)).tobytes())
+        self.assertGreater(len(frames), 40, "the sea did not change from frame to frame")
 
     def test_people_stand_on_the_sand_on_the_beach_and_the_pavement_in_town(self):
         self.assertEqual(TOWN.ground_row(20), TOWN.SAND_ROW)
@@ -295,17 +328,13 @@ class PixelTownPolishTests(unittest.TestCase):
         return frame
 
     def test_two_signs_in_view_never_say_the_same_thing(self):
-        seen = []
-        original = TOWN.draw_tiny
-        TOWN.draw_tiny = lambda frame, text, x, y, colour, *a, **k: (seen.append((y, text)),
-                                                                     original(frame, text, x, y, colour, *a, **k))[1]
-        try:
-            self.frame(14, 128)
-        finally:
-            TOWN.draw_tiny = original
-        signs = [text for y, text in seen if y in (TOWN.SIGNS[0][2] - 8, TOWN.SIGNS[1][2] - 8)]
-        self.assertGreaterEqual(len(signs), 2)
-        self.assertNotEqual(*signs[-2:])   # the last frame's pair
+        now = datetime(2026, 9, 20, 14, 30, tzinfo=timezone.utc)
+        for t in (0.0, 3.0, 10.0, 20.0):
+            frame = Image.new("RGB", (TOWN.WORLD, 32))
+            TOWN.Town._sign(frame, TOWN.ImageDraw.Draw(frame), now, {"temperature": 72}, t, "RACKVILLE", 0)
+            crops = [frame.crop((x, top - 9, x + width, top - 1)).tobytes() for x, width, top, _, _ in TOWN.SIGNS]
+            self.assertIsNotNone(frame.getbbox())
+            self.assertNotEqual(crops[0], crops[1])
 
     def test_the_station_has_a_building_at_the_far_end(self):
         edge = self.frame(14, TOWN.WORLD - TOWN.VIEW).getpixel((TOWN.VIEW - 4, 14))
@@ -572,3 +601,92 @@ class FinanceTapeTests(unittest.TestCase):
         # the same symbol is at the left edge, and it is one pixel further along, as any frame would have it
         self.assertEqual(index_now, index)
         self.assertEqual(edge_now - new_starts[index_now], inside + 1)
+
+
+class PixelTownPeopleTests(unittest.TestCase):
+    """People who walk, stand and are followed, rather than shuffle on the spot."""
+
+    def town(self, hour=12.5):
+        registry = PluginRegistry(); registry.register(TOWN.plugin)
+        config = validate_config({}, registry)
+        town = TOWN.Town()
+        town.rng.seed(5)
+        now = datetime(2026, 9, 21, int(hour), 30, tzinfo=timezone.utc)
+        return town, config, now
+
+    def run_for(self, seconds, hour=12.5, each=None):
+        town, config, now = self.town(hour)
+        for frame in range(int(seconds * 30)):
+            town.render(RenderContext(now, frame / 30, config, {}, Message(), SystemStatus(), 1))
+            if each:
+                each(town, frame)
+        return town
+
+    def test_feet_move_only_when_the_person_does(self):
+        """Half of everyone used to be marching on the spot, mostly the crowd on the platform."""
+        counts = {"walking": 0, "still": 0}
+
+        def look(town, frame):
+            for person in town.people:
+                counts["walking" if person["moving"] else "still"] += 1
+        self.run_for(120, each=look)
+        self.assertGreater(counts["walking"], 500)
+        town = self.run_for(60)
+        for person in town.people:
+            if not person["moving"]:
+                # a person standing still is in the standing pose whatever their stride count says
+                frame = Image.new("RGB", (128, 32))
+                one = dict(person, stride=0.0)
+                two = dict(person, stride=1.7)
+                TOWN.Town._person(frame, frame.load(), one, 100.0)
+                a = frame.tobytes()
+                frame = Image.new("RGB", (128, 32))
+                TOWN.Town._person(frame, frame.load(), two, 100.0)
+                self.assertEqual(a, frame.tobytes())
+
+    def test_a_walker_alternates_legs_as_the_ground_goes_by(self):
+        person = {"x": 20.0, "dir": 1, "speed": 9.0, "shirt": (230, 60, 60), "skin": (255, 214, 170),
+                  "slot": None, "carry": 0.0, "bag": 0.0, "dog": False, "moving": True, "stride": 0.0}
+        poses = set()
+        for stride in (0.0, 1.7, 3.3, 5.0):
+            frame = Image.new("RGB", (128, 32))
+            TOWN.Town._person(frame, frame.load(), dict(person, stride=stride), 100.0)
+            poses.add(frame.tobytes())
+        self.assertEqual(len(poses), 2, "a walking person has two poses, legs apart and legs together")
+
+    def test_no_more_than_a_handful_wait_on_the_platform(self):
+        town = self.run_for(240)
+        self.assertLessEqual(town._waiting(), TOWN.PLATFORM_CROWD + 1)
+
+    def test_the_camera_stays_with_somebody_and_never_whips_across_town(self):
+        views, followed, visible = [], [0], [0]
+
+        def look(town, frame):
+            views.append(town.camera.view)
+            if town.camera.subject is not None:
+                followed[0] += 1
+                visible[0] += 0 <= town.camera.subject["x"] - town.camera.view < 128
+        self.run_for(180, each=look)
+        self.assertGreater(followed[0], 30 * 30, "the camera never followed anybody")
+        self.assertGreater(visible[0] / followed[0], .9, "the person being followed was off the panel")
+        self.assertLessEqual(max(abs(b - a) for a, b in zip(views, views[1:])), 2)
+
+    def test_rooftop_signs_are_drawn_where_they_stand_even_when_only_part_is_in_view(self):
+        """A sign that only existed while the whole of it fitted the panel popped in and out."""
+        now = datetime(2026, 9, 21, 14, 5, tzinfo=timezone.utc)
+        x, width, top, _, _ = TOWN.SIGNS[0]
+        for view in (0, x - 20, x - 100, TOWN.WORLD - TOWN.VIEW):
+            frame = Image.new("RGB", (TOWN.WORLD, 32))
+            TOWN.Town._sign(frame, TOWN.ImageDraw.Draw(frame), now, {}, 3.0, "RACKVILLE", view)
+            self.assertIsNotNone(frame.crop((x - 5, top - 9, x + width + 5, top - 1)).getbbox(),
+                                 f"no sign drawn with the camera at {view}")
+
+    def test_a_new_message_rolls_into_a_sign_rather_than_cutting(self):
+        now = datetime(2026, 9, 21, 14, 5, tzinfo=timezone.utc)
+        x, width, top, _, _ = TOWN.SIGNS[0]
+        seen = set()
+        for t in (5.9, 6.05, 6.15, 6.25, 6.45):
+            frame = Image.new("RGB", (TOWN.WORLD, 32))
+            TOWN.Town._sign(frame, TOWN.ImageDraw.Draw(frame), now, {"temperature": 72}, t, "RACKVILLE", 0)
+            seen.add(frame.crop((x - 5, top - 9, x + width + 5, top - 1)).tobytes())
+        self.assertGreaterEqual(len(seen), 4)

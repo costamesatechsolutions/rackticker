@@ -48,6 +48,7 @@ class Scheduler:
         self.paused = False
         self.revision = 0
         self.pending = None
+        self._hold = None
 
     def _switch(self, cursor):
         self.current = cursor
@@ -69,6 +70,7 @@ class Scheduler:
     def tick(self, dt, eligible, hold=None):
         """`hold(cursor)` lets a screen finish what it is showing (a crawl lap,
         a headline) before the playlist moves on, bounded by HOLD_LIMIT."""
+        self._hold = hold
         if self.current is None:
             self.next(eligible)
         c = self.current
@@ -120,15 +122,25 @@ class Scheduler:
             if remaining_dt <= 0:
                 return
 
+    def _mid_read(self, c):
+        """True while an automatic event should keep waiting: the screen hasn't had its
+        minimum read time yet, or (like the natural duration-expiry path) it is mid-story
+        and hold() says so. Bounded by PENDING_TTL, so a screen that never breaks just
+        loses the automatic event rather than being cut off mid-crawl."""
+        if c.elapsed < MIN_READ_SECONDS:
+            return True
+        return bool(self._hold and self._hold(c))
+
     def interrupt(self, event: PriorityEvent, defer: bool = False):
         """`defer` is for automatic events (a plane passing): they wait for the
-        current screen's read time. Manual interrupts start immediately."""
+        current screen's read time, and for it to finish what it is showing.
+        Manual interrupts start immediately."""
         c = self.current
         if c and c.kind == "interrupt" and event.priority <= c.priority:
             return False
         if len(self.suspended) >= 8:
             return False
-        if defer and c and c.kind == "playlist" and c.elapsed < MIN_READ_SECONDS:
+        if defer and c and c.kind == "playlist" and self._mid_read(c):
             if self.pending and event.priority <= self.pending[0].priority:
                 return False
             self.pending = (event, 0.0)
@@ -137,14 +149,15 @@ class Scheduler:
         return True
 
     def _release_pending(self):
-        """Start a waiting event once the current screen has been readable long enough."""
+        """Start a waiting event once the current screen has been readable long enough
+        and has finished what it was showing."""
         c = self.current
         if not self.pending or c is None:
             return
         event, _ = self.pending
         if c.kind == "interrupt" and event.priority <= c.priority:
             return
-        if c.kind != "playlist" or c.elapsed >= MIN_READ_SECONDS:
+        if c.kind != "playlist" or not self._mid_read(c):
             self.pending = None
             self._start(event)
 

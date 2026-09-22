@@ -35,6 +35,13 @@ FLASH_SECONDS, BANNER_SECONDS = 180, 2.6   # a big play leads its game's card fo
 # The card fills the panel below the header. It used to stop three rows short,
 # which left the football field a two-pixel sliver under the scores.
 BODY_TOP, BODY_HEIGHT = 11, 21
+# Logos fill almost the full body height now (a 16px mark reduced wordmark-style
+# logos, like the Jets', to mush); everything that has to stay clear of them
+# (the field, the power-play labels, the pregame lines) shares these margins.
+LOGO_SIZE = 20
+HOME_LOGO_X = 128 - LOGO_SIZE
+LEFT_SAFE = LOGO_SIZE + 3
+RIGHT_SAFE = HOME_LOGO_X - 3
 
 
 def slate(snapshot):
@@ -183,26 +190,26 @@ class Sportsbook(Module):
 
     @staticmethod
     def _mark(body, team, x):
-        """16×16 logo, or a team-colour tile with the abbreviation when none is cached."""
+        """LOGO_SIZE logo, or a team-colour tile with the abbreviation when none is cached."""
         logo, dark = logo_image(team.logo_png) if team.logo_png else (None, False)
         draw = ImageDraw.Draw(body)
         if logo:
             if dark:  # Near-black marks disappear on a black panel; give them a tile.
-                draw.rounded_rectangle((x, 1, x + 15, 16), radius=3, fill=(58, 58, 66))
+                draw.rounded_rectangle((x, 1, x + LOGO_SIZE - 1, LOGO_SIZE), radius=3, fill=(58, 58, 66))
             body.paste(logo, (x, 1), logo)
             return
         color = team_color(team)
-        draw.rounded_rectangle((x, 1, x + 15, 16), radius=2, fill=color)
+        draw.rounded_rectangle((x, 1, x + LOGO_SIZE - 1, LOGO_SIZE), radius=2, fill=color)
         ink = (0, 0, 0) if sum(color) > 480 else WHITE
-        draw_tiny(body, team.abbreviation, x + 8 - tiny_width(team.abbreviation) // 2, 6, ink)
+        draw_tiny(body, team.abbreviation, x + LOGO_SIZE // 2 - tiny_width(team.abbreviation) // 2, 8, ink)
 
     def _matchup(self, body, game, extra, flip):
         self._mark(body, game.away, 0)
-        self._mark(body, game.home, 112)
+        self._mark(body, game.home, HOME_LOGO_X)
         if game.status != "pregame":
             leader = max(game.away.score, game.home.score)
             diamond = game.status == "live" and "bases" in extra
-            for team, right_edge, left in ((game.away, None if diamond else 58, 19), (game.home, 109 if diamond else None, 70)):
+            for team, right_edge, left in ((game.away, None if diamond else 58, LEFT_SAFE), (game.home, RIGHT_SAFE if diamond else None, 70)):
                 score = str(team.score)
                 x = right_edge - text_width(score, 2) if right_edge else left
                 draw_text(body, score, x, 2, LAMP if team.score == leader else DULL, 2, True)
@@ -216,12 +223,12 @@ class Sportsbook(Module):
                 self._field(body, game, extra)
             ball = extra.get("ball") if game.status == "live" else None
             if ball:  # who has the ball: a football beside their logo, red inside the 20
-                x = 18 if ball == "away" else 104
+                x = LEFT_SAFE - 1 if ball == "away" else RIGHT_SAFE - 5
                 draw = ImageDraw.Draw(body)
                 draw.ellipse((x, 7, x + 6, 11), fill=RED if extra.get("red_zone") else (190, 110, 40))
                 draw.line((x + 2, 9, x + 4, 9), fill=WHITE)
             return
-        for team, side, left in ((game.away, "away", 19), (game.home, "home", None)):
+        for team, side, left in ((game.away, "away", LEFT_SAFE), (game.home, "home", None)):
             spread, moneyline = extra.get(f"{side}_spread", ""), extra.get(f"{side}_ml", "")
             record = extra.get(f"{side}_record", "")
             abbreviation = team.abbreviation
@@ -230,10 +237,10 @@ class Sportsbook(Module):
                 if value == moneyline and value else LAMP
             if not value:
                 value, color = record, DULL
-            x_name = left if left is not None else 109 - text_width(abbreviation)
+            x_name = left if left is not None else RIGHT_SAFE - text_width(abbreviation)
             draw_text(body, abbreviation, x_name, 1, WHITE)
             if value:
-                draw_text(body, value, left if left is not None else 109 - text_width(value), 10, color)
+                draw_text(body, value, left if left is not None else RIGHT_SAFE - text_width(value), 10, color)
         total = extra.get("total")
         if total:
             draw_tiny(body, "O/U", 64 - tiny_width("O/U") // 2, 2, DULL)
@@ -262,7 +269,7 @@ class Sportsbook(Module):
         """The field under the score, as TV draws it: the away end zone on the left
         and the home one on the right, the ball, and the yellow first-down line."""
         draw = ImageDraw.Draw(body)
-        left, right, top, bottom = 18, 109, 16, 19
+        left, right, top, bottom = LEFT_SAFE - 1, RIGHT_SAFE, 16, 19
         yards = lambda yard: left + 4 + round((100 - yard) * (right - left - 8) / 100)
         draw.rectangle((left, top, right, bottom), fill=(18, 62, 28))
         draw.rectangle((left, top, left + 3, bottom), fill=team_color(game.away))
@@ -288,7 +295,7 @@ class Sportsbook(Module):
     def _hockey(body, extra, blink):
         """Beside each logo: PP and its clock for the team on the power play, EN for a
         team that has pulled its goalie."""
-        for side, x, align in (("away", 18, "left"), ("home", 109, "right")):
+        for side, x, align in (("away", LEFT_SAFE - 1, "left"), ("home", RIGHT_SAFE, "right")):
             lines = []
             if extra.get("pp") == side:
                 lines = [("PP", LAMP if blink else WHITE), (extra.get("pp_time", "").lstrip("0") or "", WHITE)]

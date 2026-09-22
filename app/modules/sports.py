@@ -12,6 +12,11 @@ from app.core.renderer import new_frame, WHITE, AMBER, MUTED, GREEN
 
 LEAGUE_COLORS = {"NFL": (20, 90, 220), "NBA": (230, 80, 30), "MLB": (200, 30, 40), "NHL": (120, 130, 150),
                  "WNBA": (255, 120, 40), "NCAAF": (40, 140, 70), "NCAAM": (90, 60, 200)}
+# Matches the sportsbook plugin's mark size: a 16px logo reduced wordmark-style
+# marks (the Jets' script, say) to mush.
+LOGO_SIZE = 20
+AWAY_LOGO_X = 3
+HOME_LOGO_X = 128 - 3 - LOGO_SIZE
 
 
 @lru_cache(maxsize=64)
@@ -68,15 +73,17 @@ class SportsModule(Module):
             # A two-pixel rectangle stays perfectly vertical at any team colour.
             stripe = 0 if left else 126
             draw.rectangle((stripe, 9, stripe + 1, 24), fill=_rgb(team.color))
-            mark_x = 3 if left else 109
+            mark_x = AWAY_LOGO_X if left else HOME_LOGO_X
             logo = _logo_image(team.logo_png) if team.logo_png else None
             if logo:
                 frame.paste(logo, (mark_x, 9), logo)
             else:
-                draw.rounded_rectangle((mark_x, 9, mark_x + 15, 24), radius=2, fill=mix(_rgb(team.color), (0, 0, 0), .3))
-                draw_tiny(frame, team.abbreviation, mark_x + 8 - tiny_width(team.abbreviation) // 2, 14, WHITE)
+                draw.rounded_rectangle((mark_x, 9, mark_x + LOGO_SIZE - 1, 9 + LOGO_SIZE - 1), radius=2,
+                                       fill=mix(_rgb(team.color), (0, 0, 0), .3))
+                draw_tiny(frame, team.abbreviation, mark_x + LOGO_SIZE // 2 - tiny_width(team.abbreviation) // 2,
+                         9 + LOGO_SIZE // 2 - 3, WHITE)
             if game.status == "pregame":
-                name_x = 22 if left else 106 - text_width(team.abbreviation)
+                name_x = AWAY_LOGO_X + LOGO_SIZE + 3 if left else HOME_LOGO_X - 3 - text_width(team.abbreviation)
                 draw_text(frame, team.abbreviation, name_x, 12, WHITE)
             else:
                 score = str(team.score)

@@ -63,6 +63,21 @@ class SchedulerTests(unittest.TestCase):
         scheduler.tick(1, {"s"})
         self.assertEqual(scheduler.current.kind, "interrupt")
 
+    def test_automatic_event_waits_past_read_time_for_mid_story_to_finish(self):
+        """Past the minimum read time, an automatic event (a plane passing) must still
+        wait for a crawling headline to finish its lap, not just for the 12s minimum."""
+        scheduler = Scheduler([PlaylistEntry("a", "news", 60), PlaylistEntry("b", "sports", 60)])
+        still_reading = [True]
+        hold = lambda cursor: still_reading[0]
+        scheduler.tick(0, {"a", "b"}, hold)
+        scheduler.tick(MIN_READ_SECONDS + 5, {"a", "b"}, hold)   # well past the minimum read time
+        scheduler.interrupt(PriorityEvent("flight", 10, 20), defer=True)
+        scheduler.tick(5, {"a", "b"}, hold)
+        self.assertEqual(scheduler.current.module, "news")      # still mid-headline: not cut off
+        still_reading[0] = False                                 # the headline finishes its lap
+        scheduler.tick(.1, {"a", "b"}, hold)
+        self.assertEqual(scheduler.current.kind, "interrupt")
+
     def test_a_screen_that_blinks_out_is_not_snatched_from_the_reader(self):
         """A feed that hiccups or a plugin that restarts must not cut the screen on show."""
         scheduler = Scheduler([PlaylistEntry("a", "clock", 60), PlaylistEntry("b", "sports", 60)])

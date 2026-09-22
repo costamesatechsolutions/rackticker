@@ -90,10 +90,12 @@ def _local_time(start, timezone_name):
 
 
 def _nhl_logo(team):
-    """Use a runtime PNG because the NHL schedule supplies SVG-only marks."""
+    """Use a runtime PNG because the NHL schedule supplies SVG-only marks.
+    The "scoreboard" variant is ESPN's own simplified mark for small displays
+    (a wordmark like the Jets' would otherwise turn to mush at panel size)."""
     abbreviation = str(team.get("abbrev") or "").upper()
     code = ESPN_NHL_CODES.get(abbreviation, abbreviation.lower())
-    return f"https://a.espncdn.com/i/teamlogos/nhl/500/{code}.png" if code else ""
+    return f"https://a.espncdn.com/i/teamlogos/nhl/500/scoreboard/{code}.png" if code else ""
 
 
 def normalize_nhl_game(raw, timezone_name):
@@ -417,18 +419,21 @@ def parse_scoreboards(feeds, timezone_name):
     return games
 
 
+LOGO_SIZE = 20   # big enough that thin marks (a wordmark, a script logo) survive the downscale
+
+
 def shrink_team_logo(raw):
-    """A crisp 16×16 PNG mark from a full-size logo."""
+    """A crisp LOGO_SIZE×LOGO_SIZE PNG mark from a full-size logo."""
     if len(raw) > 600_000:
         raise ValueError("Logo is too large")
     # Premultiplied box downscaling avoids dark fringes, and a hard alpha
-    # edge keeps 16×16 marks crisp instead of muddy half-lit pixels.
+    # edge keeps marks crisp instead of muddy half-lit pixels.
     source = Image.open(BytesIO(raw)).convert("RGBA").convert("RGBa")
-    source.thumbnail((16, 16), Image.Resampling.BOX)
+    source.thumbnail((LOGO_SIZE, LOGO_SIZE), Image.Resampling.BOX)
     source = source.convert("RGBA")
     source.putalpha(source.getchannel("A").point(lambda alpha: 255 if alpha >= 110 else 0))
-    image = Image.new("RGBA", (16, 16))
-    image.alpha_composite(source, ((16 - source.width) // 2, (16 - source.height) // 2))
+    image = Image.new("RGBA", (LOGO_SIZE, LOGO_SIZE))
+    image.alpha_composite(source, ((LOGO_SIZE - source.width) // 2, (LOGO_SIZE - source.height) // 2))
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
     return output.getvalue()

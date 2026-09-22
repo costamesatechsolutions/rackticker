@@ -399,7 +399,7 @@ class PixelTownLifeTests(unittest.TestCase):
         shop = TOWN.SHOPS[3]
         town._spawn_person(float(shop[0] + shop[1] - 6))
         person = town.people[0]
-        person.update(dir=1, hungry=False, traveller=False, speed=8.0, dog=False)
+        person.update(dir=1, hungry=False, traveller=False, speed=8.0, dog=False, jogger=False)
         went_in = False
         for _ in range(30 * 20):
             town._simulate(1 / 30, 12.0, "sun", None)

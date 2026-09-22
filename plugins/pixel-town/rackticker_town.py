@@ -52,6 +52,12 @@ TRUCK = ("....ttttt.........",
          ".owwwwwwwwwwwobbo.",
          ".ooooooooooooooooo",
          "..gkg.......gkg...")
+# The truck's own solid width, cab to tailgate, relative to its left edge: a walker
+# crossing behind it is fully hidden for this stretch of pavement rather than
+# flickering through the gaps in its outline (the taco, the wheel gaps) that make
+# it a truck and not a box.
+_truck_cols = [x for row in TRUCK for x, ch in enumerate(row) if ch != "."]
+TRUCK_SPAN = (min(_truck_cols), max(_truck_cols))
 CAR = ("..ggggg..", ".cgggggc.", "ccccccccc", ".kk...kk.")
 # A delivery van: taller box body, a cab window at the front, a logo panel.
 VAN = ("..ccccccccc..", ".gcccccccccc.", "ccccccccccccc", ".kk.......kk.")
@@ -75,6 +81,7 @@ PLANE = ("...w...", "wwwwwww", "..www..")
 WORLD, VIEW = 384, 128
 BEACH_END, TOWN_END = 104, 280
 STREET_Y, TRUCK_X = 25, 150
+TRUCK_LEFT, TRUCK_RIGHT = TRUCK_X + TRUCK_SPAN[0], TRUCK_X + TRUCK_SPAN[1]
 # The road runs under the town at both ends: cars come out of a dark portal and go
 # back into one, so none of them ever drives onto the sand or down the railway.
 ROAD_L, ROAD_R = BEACH_END - 1, TOWN_END - 18        # where a car is fully inside a portal
@@ -511,16 +518,21 @@ class Town(Module):
 
     def _spawn_person(self, x=None, direction=None):
         direction = direction or self.rng.choice((-1, 1))
+        # One in ten is out for a run: through at a clip, no errands, no dawdling,
+        # so the street is not everybody keeping the same pace all day.
+        jogger = self.rng.random() < .1
         self.people.append({"x": x if x is not None else (-4.0 if direction > 0 else WORLD + 3.0), "dir": direction,
-                            "speed": self.rng.uniform(7, 12), "shirt": self.rng.choice(SHIRTS),
-                            "skin": self.rng.choice(SKINS), "hungry": self.rng.random() < .45,
-                            "pause": 0.0, "fed": False, "dog": self.rng.random() < .08,
+                            "speed": self.rng.uniform(20, 26) if jogger else self.rng.uniform(7, 12),
+                            "shirt": self.rng.choice(SHIRTS),
+                            "skin": self.rng.choice(SKINS), "hungry": not jogger and self.rng.random() < .45,
+                            "pause": 0.0, "fed": False, "dog": not jogger and self.rng.random() < .08,
                             "slot": None, "carry": 0.0, "board": None,
                             # Some are off to a shop: they go in, and come out with a bag.
                             "inside": 0.0, "bag": 0.0, "visited": set(),
                             # A few of them are going somewhere: they wait on the
                             # platform and get on the train when it opens its doors.
-                            "traveller": self.rng.random() < .3 and self._waiting() < PLATFORM_CROWD,
+                            "traveller": not jogger and self.rng.random() < .3 and self._waiting() < PLATFORM_CROWD,
+                            "jogger": jogger,
                             "stride": self.rng.uniform(0, 3), "moving": False, "_x0": 0.0})
 
     def _waiting(self):
@@ -620,12 +632,22 @@ class Town(Module):
         """Somebody passing an open shop's door sometimes goes in."""
         reach = person["speed"] * dt * 1.6 + .6
         if person.get("home"):      # somebody sent in from the beach lets themselves in at the next door
-            if person["x"] >= PORTAL_WEST[1] and any(abs(person["x"] - (x + width - 2)) <= reach
-                                                     for x, width, _, _ in SHOPS):
-                person["gone"] = True
+            if person["x"] < PORTAL_WEST[1]:
+                return
+            last_x, last_width = SHOPS[-1][0], SHOPS[-1][1]
+            if person["x"] > last_x + last_width:     # missed every doorway: let them go anyway,
+                person["gone"] = True                 # rather than pace the street forever
+                return
+            for x, width, _, _ in SHOPS:
+                door = x + width - 2
+                if abs(person["x"] - door) <= reach:
+                    # A beat on the step before the door closes behind them, not a jump-cut.
+                    person["x"], person["inside"] = float(door), self.rng.uniform(1.0, 1.8)
+                    return
             return
-        if person["traveller"] or person["x"] < PORTAL_WEST[1] or (person["hungry"] and not person["fed"]):
-            return      # those are off to the station, or to the taco truck
+        if person.get("jogger") or person["traveller"] or person["x"] < PORTAL_WEST[1] \
+                or (person["hungry"] and not person["fed"]):
+            return      # those are off to the station, or to the taco truck, or not stopping at all
         for index, (x, width, closes, _) in enumerate(SHOPS):
             if index in person["visited"] or not 8 <= hour < closes:
                 continue
@@ -810,7 +832,10 @@ class Town(Module):
             if person["inside"] > 0:            # in the shop, out of sight
                 person["inside"] -= dt
                 if person["inside"] <= 0:
-                    person["bag"] = 7.0
+                    if person.get("home"):      # that was the last door: they're in for the night
+                        person["gone"] = True
+                    else:
+                        person["bag"] = 7.0
                 continue
             if person.get("waits_bus"):         # at the stop, looking down the road
                 stand = person["stand"]
@@ -941,7 +966,11 @@ class Town(Module):
         self._street(frame, draw, pixels, night, hour, t, left, right)
         self._station(frame, draw, pixels, night, t, left, right)
         for person in sorted(self.people, key=lambda p: p["x"]):
-            if left - 10 < person["x"] < right + 10 and person["inside"] <= 0:
+            # The truck stands taller than anyone walking past it, so behind it
+            # they are hidden outright rather than showing through the gaps in
+            # its shape (the taco, the gap between the wheels) as they cross.
+            behind_truck = TRUCK_LEFT <= person["x"] <= TRUCK_RIGHT
+            if left - 10 < person["x"] < right + 10 and person["inside"] <= 0 and not behind_truck:
                 self._person(frame, pixels, person, t, ground_row(person["x"]), self.wet)
         self._pigeons(frame, pixels, t, left, right)
         self._foreground(frame, draw, pixels, night, hour, t, left, right, light)

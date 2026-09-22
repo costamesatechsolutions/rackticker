@@ -94,6 +94,42 @@ class FlightScreenTests(unittest.TestCase):
 class UnroutedCardTests(unittest.TestCase):
     """A flight with no route on file still fits its card in whole lines."""
 
+    @staticmethod
+    def bands(card):
+        """The rows of the card that have ink on them, right of the airline mark,
+        grouped into runs with a blank row between them."""
+        runs = []
+        for y in range(32):
+            inked = card.crop((35, y, 128, y + 1)).getbbox() is not None
+            if inked and runs and runs[-1][1] == y - 1:
+                runs[-1][1] = y
+            elif inked:
+                runs.append([y, y])
+        return runs
+
+    def test_the_four_lines_never_run_into_one_another(self):
+        """Who, what, how it is flying, where to look: four lines, each its own band.
+
+        Drawing the aircraft name at 2x used to spill through the height and speed
+        under it, which is what a 737 overhead actually looked like on the panel.
+        """
+        module = FlightModule()
+        config = validate_config({})
+        for kind in ("B738", "C172", "EC35", "A359", "GLF6", "F18S", "C700", "H25B", "XXXX", ""):
+            with self.subTest(kind=kind):
+                nearby = {"id": "N899XP", "callsign": "N899XP", "distance": 3.2, "bearing": 200,
+                          "altitude": 13500, "type": kind, "speed": 310, "vertical_rate": 1800}
+                flight = Flight("N899XP", kind or "ADS-B", "---", "---", 13500, 310, 3.2, 200, 1800)
+                snap = Snapshot(flight, source="local_adsb", metadata={"nearby": [nearby]})
+                card = module.render(RenderContext(datetime.now(timezone.utc), 3.0, config, {"flight": snap},
+                                                   Message("X", "X"), SystemStatus()))
+                # Rows 18 and 26 are the grid's two gaps. Ink in either one means a line
+                # has grown into the space below it, which is how the old 2x name ran
+                # through the height and speed.
+                for gap in (18, 26):
+                    self.assertIsNone(card.crop((35, gap, 128, gap + 1)).getbbox(),
+                                      f"{kind}: row {gap} should be clear, the card reads {self.bands(card)}")
+
     def test_height_and_speed_are_dropped_whole_never_cut_in_half(self):
         module = FlightModule()
         config = validate_config({})

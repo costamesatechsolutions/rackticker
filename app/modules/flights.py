@@ -13,7 +13,7 @@ import re
 from PIL import Image, ImageDraw
 
 from app.modules.base import Module, missing, stale_marker
-from app.core.aircraft import mixed, type_name
+from app.core.aircraft import TYPES, mixed, type_name
 from app.core.airlines import airline, display_name
 from app.core.fonts import centered, draw_text, draw_tiny, text_width, tiny_width
 from app.core.fx import ease_out, mix
@@ -193,6 +193,21 @@ class FlightModule(Module):
         frame.paste(card.crop((0, 0, 128, 32 - rise)), (0, rise))
 
     @staticmethod
+    def _aircraft(code):
+        """The aircraft in as many words as the line holds: "Boeing 737-800" before
+        "737-800", and "F/A-18" before the raw "F18S". Whole words only: a name cut
+        mid-word ("Citation Longitud") looks like a fault."""
+        code = (code or "").strip().upper()
+        if code and code not in TYPES:   # an ICAO code we have no name for stays a code
+            return _fit(code, INFO_WIDTH)
+        names = [mixed(type_name(code, long=True)), mixed(type_name(code, long=False))]
+        for name in list(names):
+            words = name.split()
+            names.extend(" ".join(words[:n]) for n in range(len(words) - 1, 0, -1))
+        names.append((code or "").upper())
+        return next((n for n in names if n and text_width(n, 1, True) <= INFO_WIDTH), "") or "Aircraft"
+
+    @staticmethod
     def _inferred(row):
         """Route databases key on the callsign, and airlines reuse them, so many flights have
         no route we can trust. Where the aircraft is and how it moves still says which
@@ -202,12 +217,12 @@ class FlightModule(Module):
                 str(row.get("airport_city") or row["airport"])
         return None
 
-    def _title(self, card, row, name, short, lower, room=INFO_WIDTH):
+    def _title(self, card, row, name, short, lower, room=INFO_WIDTH, type_code=True):
         """The airline and flight number on the top line, the aircraft type beside it if it fits."""
         title = name if text_width(name, 1, lower) <= room else short
         title = _fit(title, room, 1, lower)
         draw_text(card, title, INFO_X, 0, WHITE, mixed=lower)
-        if row.get("type"):
+        if row.get("type") and type_code:
             gap = text_width(title, 1, lower) + 5
             for plane in (type_name(row["type"], long=False), row["type"]):
                 if tiny_width(plane) + gap <= INFO_WIDTH:
@@ -294,24 +309,37 @@ class FlightModule(Module):
 
     def _unrouted(self, card, row, name, short, lower):
         """No published route (private and military flights, and callsigns whose route on file
-        is somebody else's): the aircraft is the story, and everything fits, whole, in four lines."""
-        self._title(card, row, name, short, lower)
-        label = mixed(type_name(row.get("type"), long=False)) or "Aircraft"
-        size = 2 if text_width(label, 2, True) <= INFO_WIDTH else 1
-        if size == 2:
-            draw_text(card, label, INFO_X, 9, AMBER, 2, True, mixed=True)
-        else:
-            draw_text(card, _fit(label, INFO_WIDTH, 1, True), INFO_X, 9, AMBER, mixed=True)
+        is somebody else's): the aircraft is the story.
+
+        Four lines on the grid a routed card uses, so the two look like the same screen:
+        who it is, what it is, how it is flying, and where to look for it. A 5x7 line is
+        seven rows and its descenders hang two more, so 0, 9 and 19 with a small line at
+        27 leaves rows 18 and 26 empty: two clear gaps, and no descender ever lands on
+        the line below it.
+        Drawing the name at 2x used to look better on a 737-800 and ran straight through
+        the height and speed on everything else; the type goes on its own line instead.
+        """
+        # The type is spelled out below, so the top line keeps the full width for the airline.
+        self._title(card, row, name, short, lower, type_code=False)
+        # The aircraft in as many words as the line holds: "Boeing 737-800" before "737-800",
+        # and the raw type code when it is one we have no name for.
+        code = row.get("type") or ""
+        draw_text(card, self._aircraft(code), INFO_X, 9, AMBER, mixed=True)
         # Height and speed, each dropped whole rather than cut in half.
         motion = self._motion(row)
         parts = motion.split("  ")
         while parts and text_width("  ".join(parts)) > INFO_WIDTH:
             parts.pop()
         if parts:
-            draw_text(card, "  ".join(parts), INFO_X, 18 if size == 1 else 20, GREEN)
+            draw_text(card, "  ".join(parts), INFO_X, 19, GREEN)
+        # Where to look, and what it is doing while you look: the one thing a card about a
+        # plane you can hear overhead is for.
         where_text = f"{row['distance']:.1f}MI {compass(row.get('bearing'))}"
+        rate = row.get("vertical_rate")
         if row.get("phase") == "overflight":
             where_text += "  OVERFLIGHT"
+        elif rate is not None and abs(rate) > 250:
+            where_text += "  CLIMBING" if rate > 0 else "  DESCENDING"
         draw_tiny(card, _fit_tiny(where_text, INFO_WIDTH), INFO_X, 27, MUTED)
 
     @staticmethod

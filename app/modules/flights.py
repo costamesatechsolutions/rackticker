@@ -293,14 +293,26 @@ class FlightModule(Module):
             card.putpixel((x0 + dx, y - 2 + dy), WHITE)
 
     def _unrouted(self, card, row, name, short, lower):
-        """No published route (private and military flights): the aircraft is the story."""
-        draw_text(card, _fit(name if text_width(name, 1, lower) <= INFO_WIDTH else short, INFO_WIDTH, 1, lower),
-                  INFO_X, 0, WHITE, mixed=lower)
+        """No published route (private and military flights, and callsigns whose route on file
+        is somebody else's): the aircraft is the story, and everything fits, whole, in four lines."""
+        self._title(card, row, name, short, lower)
         label = mixed(type_name(row.get("type"), long=False)) or "Aircraft"
         size = 2 if text_width(label, 2, True) <= INFO_WIDTH else 1
-        draw_text(card, _fit(label, INFO_WIDTH, size, True), INFO_X, 9 if size == 2 else 12, AMBER, size,
-                  size == 2, mixed=True)
-        draw_text(card, _fit(where(row), INFO_WIDTH), INFO_X, 25, GREEN)
+        if size == 2:
+            draw_text(card, label, INFO_X, 9, AMBER, 2, True, mixed=True)
+        else:
+            draw_text(card, _fit(label, INFO_WIDTH, 1, True), INFO_X, 9, AMBER, mixed=True)
+        # Height and speed, each dropped whole rather than cut in half.
+        motion = self._motion(row)
+        parts = motion.split("  ")
+        while parts and text_width("  ".join(parts)) > INFO_WIDTH:
+            parts.pop()
+        if parts:
+            draw_text(card, "  ".join(parts), INFO_X, 18 if size == 1 else 20, GREEN)
+        where_text = f"{row['distance']:.1f}MI {compass(row.get('bearing'))}"
+        if row.get("phase") == "overflight":
+            where_text += "  OVERFLIGHT"
+        draw_tiny(card, _fit_tiny(where_text, INFO_WIDTH), INFO_X, 27, MUTED)
 
     @staticmethod
     def _badge(image, carrier):

@@ -89,3 +89,21 @@ class FlightScreenTests(unittest.TestCase):
         gone = Snapshot(None, source="local_adsb", metadata={})
         after = self.module.render(self.context(gone, 3))
         self.assertEqual(before.tobytes(), after.tobytes())
+
+
+class UnroutedCardTests(unittest.TestCase):
+    """A flight with no route on file still fits its card in whole lines."""
+
+    def test_height_and_speed_are_dropped_whole_never_cut_in_half(self):
+        module = FlightModule()
+        config = validate_config({})
+        for altitude in (900, 16325, 41000):
+            row = {"id": "SWA2492", "callsign": "SWA2492", "distance": 6.0, "bearing": 200, "altitude": altitude,
+                   "type": "B38M", "speed": 470, "vertical_rate": 900}
+            flight = Flight("SWA2492", "B38M", "---", "---", altitude, 470, 6.0, 200, 900)
+            snap = Snapshot(flight, source="local_adsb", metadata={"nearby": [row]})
+            context = RenderContext(datetime.now(timezone.utc), 3.0, config, {"flight": snap}, Message("X", "X"),
+                                    SystemStatus())
+            card = module.render(context)
+            # the last column of the panel holds the end of a line only if a line ran off the edge
+            self.assertIsNone(card.crop((127, 9, 128, 26)).getbbox(), f"a line ran off the panel at {altitude} ft")

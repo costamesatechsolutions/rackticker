@@ -672,8 +672,13 @@ class LocalADSB(Provider):
         """Community ADS-B aggregators around the configured location, used only
         while the local receiver is unplugged, stopped or stale."""
         latitude, longitude = settings["latitude"], settings["longitude"]
-        if not settings["network_fallback"] or (latitude == 0 and longitude == 0):
+        if not settings["network_fallback"]:
             raise local_error
+        if latitude == 0 and longitude == 0:
+            # First run on a laptop: there is no receiver and nowhere to ask the
+            # network about. Saying which dump1090 file is missing sends people
+            # looking for a fault; what they actually need is their location.
+            raise ConnectionError("Set your home location in Settings")
         tick = time.monotonic()
         if self.network_cache and tick < self.network_cache[0]:
             return self.network_cache[1]

@@ -390,6 +390,7 @@ class Camera:
     DWELL = (6.0, 11.0)           # how long it watches one place when it is not following anyone
     FOLLOW = (9.0, 17.0)          # how long it stays with one person
     LEAD = 16.0                   # how far ahead of them it looks
+    EXCURSION = 70.0              # hand over once they have led the camera this far, win or lose
 
     def __init__(self, rng):
         self.rng = rng
@@ -399,6 +400,7 @@ class Camera:
         self.dwell = rng.uniform(1.0, 3.0)
         self.view = round(self.x)   # the town x drawn at the panel's left edge
         self.subject, self.follow_for, self.hold, self.lead = None, 0.0, 0.0, 0.0
+        self.subject_dir, self.subject_x0 = 0, 0.0
 
     def look_at(self, centre, urgent=False):
         """Frame something at this point in town."""
@@ -432,7 +434,14 @@ class Camera:
         person = self.subject
         if person is not None:
             self.follow_for -= dt
-            if self.follow_for <= 0 or not self.worth_following(person) or not any(p is person for p in people):
+            # A walker who turns back has a new plan, not one worth following the
+            # other way for: hand over rather than reversing the pan with them. And
+            # however purposeful they are, once they have led the camera far enough
+            # to cross a district it is time to look at something else for a while.
+            turned = person["dir"] != self.subject_dir
+            strayed = abs(person["x"] - self.subject_x0) > self.EXCURSION
+            if self.follow_for <= 0 or turned or strayed or not self.worth_following(person) \
+                    or not any(p is person for p in people):
                 self.subject = person = None
                 self.dwell = self.rng.uniform(1.5, 3.5)
         if person is not None:
@@ -447,6 +456,7 @@ class Camera:
                 chosen = self.choose(people) if self.rng.random() < .8 else None
                 if chosen is not None:
                     self.subject, self.lead = chosen, 0.0
+                    self.subject_dir, self.subject_x0 = chosen["dir"], chosen["x"]
                     self.follow_for = self.rng.uniform(*self.FOLLOW)
                 else:
                     centre = self.x + VIEW / 2
@@ -1663,11 +1673,12 @@ class Town(Module):
     def _person(frame, pixels, person, t, ground=STREET_Y, wet=False):
         x = round(person["x"])
         moving = person.get("moving", False)
-        # One step every 1.6 px of ground covered. Passing (legs together) is a pixel taller
-        # than contact (legs apart), and the arms swing the other way to the legs.
-        phase = math.floor(person.get("stride", 0.0) / 1.6) % 2 if moving else 0
-        lift = 1 if moving and phase else 0
-        top = ground - 5 - lift
+        # One step every 4 px of ground covered: close to a real stride at this
+        # scale, so the legs swap without flickering. Feet stay on the ground the
+        # whole time — a height change here reads as a hop, not a walk — and only
+        # the legs and arms swing to show the stride.
+        phase = math.floor(person.get("stride", 0.0) / 4.0) % 2 if moving else 0
+        top = ground - 5
         facing = person["dir"]
         plot(frame, pixels, x + 1, top, person["skin"])
         # A solid two-row body. One row over a single pixel drew a plus sign, which
@@ -1689,7 +1700,7 @@ class Town(Module):
             shade(frame, pixels, x + sx, ground)
         legs = ((x, x + 2) if not phase else (x + 1,))
         for lx in legs:   # darker than the pavement, or the legs disappear into it
-            for row in (top + 3, top + 4) if not lift else (top + 3, top + 4, top + 5):
+            for row in (top + 3, top + 4):
                 if 0 <= lx < frame.size[0]:
                     pixels[lx, row] = (26, 26, 38)
         if person["carry"] > 0:   # walking away with the taco they just paid for

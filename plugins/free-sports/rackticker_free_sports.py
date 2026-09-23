@@ -419,7 +419,7 @@ def parse_scoreboards(feeds, timezone_name):
     return games
 
 
-LOGO_SIZE = 32   # a full panel-height mark now — thin wordmark logos need the room to read
+LOGO_SIZE = 24   # bigger than a 16px hard-cutoff mark turns into — thin wordmark logos need the room to read
 
 
 def shrink_team_logo(raw):

@@ -35,11 +35,14 @@ FLASH_SECONDS, BANNER_SECONDS = 180, 2.6   # a big play leads its game's card fo
 # The card fills the panel below the header. It used to stop three rows short,
 # which left the football field a two-pixel sliver under the scores.
 BODY_TOP, BODY_HEIGHT = 11, 21
-# Logos run the full panel height now, drawn straight onto the frame instead of
-# the scrolling body, so a mark can bleed over the header rather than get
-# shrunk to mush; everything that has to stay clear of them (the field, the
-# power-play labels, the pregame lines) shares these margins.
-LOGO_SIZE = 32
+# Logos are drawn straight onto the frame instead of the scrolling body, sized
+# well past the old 20px so a mark like the Kings' crown doesn't reduce to
+# mush. LOGO_TOP keeps them below the header row (the league label, live dot,
+# SOG/broadcast text) instead of drawing over it; everything else that has to
+# stay clear of the marks (the field, the power-play labels, the pregame
+# lines) shares LEFT_SAFE/RIGHT_SAFE.
+LOGO_SIZE = 24
+LOGO_TOP = 8
 HOME_LOGO_X = 128 - LOGO_SIZE
 LEFT_SAFE = LOGO_SIZE + 3
 RIGHT_SAFE = HOME_LOGO_X - 3
@@ -195,21 +198,22 @@ class Sportsbook(Module):
 
     @staticmethod
     def _mark(frame, team, x):
-        """LOGO_SIZE logo the full panel height, or a team-colour tile with the
+        """LOGO_SIZE logo below the header, or a team-colour tile with the
         abbreviation when none is cached. Drawn straight onto the frame, on top
-        of the header and the card, so it's never squeezed down to fit."""
+        of the card, so it's never squeezed down to fit."""
         logo, dark = logo_image(team.logo_png) if team.logo_png else (None, False)
         draw = ImageDraw.Draw(frame)
         if logo:
             if dark:  # Near-black marks disappear on a black panel; give them a tile.
-                draw.rounded_rectangle((x, 0, x + LOGO_SIZE - 1, LOGO_SIZE - 1), radius=3, fill=(58, 58, 66))
-            frame.paste(logo, (x, 0), logo)
+                draw.rounded_rectangle((x, LOGO_TOP, x + LOGO_SIZE - 1, LOGO_TOP + LOGO_SIZE - 1),
+                                       radius=3, fill=(58, 58, 66))
+            frame.paste(logo, (x, LOGO_TOP), logo)
             return
         color = team_color(team)
-        draw.rounded_rectangle((x, 0, x + LOGO_SIZE - 1, LOGO_SIZE - 1), radius=2, fill=color)
+        draw.rounded_rectangle((x, LOGO_TOP, x + LOGO_SIZE - 1, LOGO_TOP + LOGO_SIZE - 1), radius=2, fill=color)
         ink = (0, 0, 0) if sum(color) > 480 else WHITE
         draw_tiny(frame, team.abbreviation, x + LOGO_SIZE // 2 - tiny_width(team.abbreviation) // 2,
-                 LOGO_SIZE // 2 - 3, ink)
+                 LOGO_TOP + LOGO_SIZE // 2 - 3, ink)
 
     def _matchup(self, body, game, extra, flip):
         if game.status != "pregame":

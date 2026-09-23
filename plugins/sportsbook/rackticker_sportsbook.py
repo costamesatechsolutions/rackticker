@@ -270,19 +270,20 @@ class Sportsbook(Module):
 
     @staticmethod
     def _diamond(body, extra):
-        """The TV score bug: runners on the bases, the count and the outs."""
+        """The TV score bug: runners on the bases, the count and the outs. Spread
+        down the body's full height instead of huddled in its top third."""
         draw = ImageDraw.Draw(body)
         bases = extra.get("bases", "000")
         # (centre x, centre y) of first, second and third; each base a diamond.
-        for occupied, (cx, cy) in zip(bases, ((72, 10), (64, 3), (56, 10))):
+        for occupied, (cx, cy) in zip(bases, ((72, 12), (64, 4), (56, 12))):
             shape = ((cx, cy - 3), (cx + 3, cy), (cx, cy + 3), (cx - 3, cy))
             draw.polygon(shape, fill=LAMP if occupied == "1" else (0, 0, 0), outline=LAMP if occupied == "1" else DULL)
         # The count under third, the outs under first: two dots, the third out ends the half.
-        draw_tiny(body, extra.get("count", ""), 56 - tiny_width(extra.get("count", "")) // 2, 13, WHITE)
+        draw_tiny(body, extra.get("count", ""), 56 - tiny_width(extra.get("count", "")) // 2, 16, WHITE)
         outs = int(extra.get("outs", "0"))
         for index in range(2):
             x = 69 + index * 4
-            draw.rectangle((x, 15, x + 2, 17), fill=RED if index < outs else (60, 44, 16))
+            draw.rectangle((x, 17, x + 2, 19), fill=RED if index < outs else (60, 44, 16))
 
     @staticmethod
     def _field(body, game, extra):

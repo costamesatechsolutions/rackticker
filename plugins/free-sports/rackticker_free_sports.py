@@ -481,7 +481,13 @@ class FreeSports(Provider):
                     continue
             for side, (team, other) in teams.items():
                 call = score_call(game.league, team.score - getattr(before, side).score)
-                if call and team.abbreviation in favorites and not (play and play[1] == side):
+                if not call or team.abbreviation not in favorites or (play and play[1] == side):
+                    continue
+                if call == "RUN SCORES":
+                    # A lone baseball run (a sac fly, a bases-loaded walk) is too
+                    # common to take over the panel for; a bigger inning still does.
+                    self.flashes[item["id"]] = {"call": call, "team": team.abbreviation, "who": "", "at": now}
+                else:
                     self._celebrate(call, team, other, game.league)
         self.previous = latest
         self.flashes = {key: flash for key, flash in self.flashes.items() if now - flash["at"] < FLASH_SECONDS}

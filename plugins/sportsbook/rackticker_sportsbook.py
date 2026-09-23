@@ -35,10 +35,11 @@ FLASH_SECONDS, BANNER_SECONDS = 180, 2.6   # a big play leads its game's card fo
 # The card fills the panel below the header. It used to stop three rows short,
 # which left the football field a two-pixel sliver under the scores.
 BODY_TOP, BODY_HEIGHT = 11, 21
-# Logos fill almost the full body height now (a 16px mark reduced wordmark-style
-# logos, like the Jets', to mush); everything that has to stay clear of them
-# (the field, the power-play labels, the pregame lines) shares these margins.
-LOGO_SIZE = 20
+# Logos run the full panel height now, drawn straight onto the frame instead of
+# the scrolling body, so a mark can bleed over the header rather than get
+# shrunk to mush; everything that has to stay clear of them (the field, the
+# power-play labels, the pregame lines) shares these margins.
+LOGO_SIZE = 32
 HOME_LOGO_X = 128 - LOGO_SIZE
 LEFT_SAFE = LOGO_SIZE + 3
 RIGHT_SAFE = HOME_LOGO_X - 3
@@ -133,13 +134,17 @@ class Sportsbook(Module):
         # itself: a clock of its own flipped at odd moments mid-read.
         seconds = context.config["plugins"][self.name]["card_seconds"]
         flash = extra.get("flash")
-        if flash and time.time() - float(extra.get("flash_at") or 0) < FLASH_SECONDS and local < BANNER_SECONDS:
+        banner = flash and time.time() - float(extra.get("flash_at") or 0) < FLASH_SECONDS and local < BANNER_SECONDS
+        if banner:
             self._banner(body, flash, extra.get("flash_team", ""), game, t, extra.get("flash_who", ""))
         else:
             self._matchup(body, game, extra, 1 if local >= seconds / 2 else 0)
         roll = round((1 - ease_out(local / .35)) * BODY_HEIGHT) if local < .35 else 0
         if roll < BODY_HEIGHT:
             frame.paste(body.crop((0, 0, 128, BODY_HEIGHT - roll)), (0, BODY_TOP + roll))
+        if not banner:
+            self._mark(frame, game.away, 0)
+            self._mark(frame, game.home, HOME_LOGO_X)
         return frame
 
     @staticmethod
@@ -189,23 +194,24 @@ class Sportsbook(Module):
         return "  ".join(parts)[:20]
 
     @staticmethod
-    def _mark(body, team, x):
-        """LOGO_SIZE logo, or a team-colour tile with the abbreviation when none is cached."""
+    def _mark(frame, team, x):
+        """LOGO_SIZE logo the full panel height, or a team-colour tile with the
+        abbreviation when none is cached. Drawn straight onto the frame, on top
+        of the header and the card, so it's never squeezed down to fit."""
         logo, dark = logo_image(team.logo_png) if team.logo_png else (None, False)
-        draw = ImageDraw.Draw(body)
+        draw = ImageDraw.Draw(frame)
         if logo:
             if dark:  # Near-black marks disappear on a black panel; give them a tile.
-                draw.rounded_rectangle((x, 1, x + LOGO_SIZE - 1, LOGO_SIZE), radius=3, fill=(58, 58, 66))
-            body.paste(logo, (x, 1), logo)
+                draw.rounded_rectangle((x, 0, x + LOGO_SIZE - 1, LOGO_SIZE - 1), radius=3, fill=(58, 58, 66))
+            frame.paste(logo, (x, 0), logo)
             return
         color = team_color(team)
-        draw.rounded_rectangle((x, 1, x + LOGO_SIZE - 1, LOGO_SIZE), radius=2, fill=color)
+        draw.rounded_rectangle((x, 0, x + LOGO_SIZE - 1, LOGO_SIZE - 1), radius=2, fill=color)
         ink = (0, 0, 0) if sum(color) > 480 else WHITE
-        draw_tiny(body, team.abbreviation, x + LOGO_SIZE // 2 - tiny_width(team.abbreviation) // 2, 8, ink)
+        draw_tiny(frame, team.abbreviation, x + LOGO_SIZE // 2 - tiny_width(team.abbreviation) // 2,
+                 LOGO_SIZE // 2 - 3, ink)
 
     def _matchup(self, body, game, extra, flip):
-        self._mark(body, game.away, 0)
-        self._mark(body, game.home, HOME_LOGO_X)
         if game.status != "pregame":
             leader = max(game.away.score, game.home.score)
             diamond = game.status == "live" and "bases" in extra
@@ -228,6 +234,7 @@ class Sportsbook(Module):
                 draw.ellipse((x, 7, x + 6, 11), fill=RED if extra.get("red_zone") else (190, 110, 40))
                 draw.line((x + 2, 9, x + 4, 9), fill=WHITE)
             return
+        away_right, home_left = LEFT_SAFE, RIGHT_SAFE
         for team, side, left in ((game.away, "away", LEFT_SAFE), (game.home, "home", None)):
             spread, moneyline = extra.get(f"{side}_spread", ""), extra.get(f"{side}_ml", "")
             record = extra.get(f"{side}_record", "")
@@ -240,12 +247,21 @@ class Sportsbook(Module):
             x_name = left if left is not None else RIGHT_SAFE - text_width(abbreviation)
             draw_text(body, abbreviation, x_name, 1, WHITE)
             if value:
-                draw_text(body, value, left if left is not None else RIGHT_SAFE - text_width(value), 10, color)
+                x_value = left if left is not None else RIGHT_SAFE - text_width(value)
+                draw_text(body, value, x_value, 10, color)
+                if side == "away":
+                    away_right = x_value + text_width(value)
+                else:
+                    home_left = x_value
         total = extra.get("total")
-        if total:
+        # The O/U sits on the same row as the spread/moneyline either side of it;
+        # with the logos this big that row is tight, so skip the total rather
+        # than let it run into the odds either side.
+        half = max(tiny_width("O/U"), text_width(total)) // 2 + 2 if total else 0
+        if total and away_right <= 64 - half and 64 + half <= home_left:
             draw_tiny(body, "O/U", 64 - tiny_width("O/U") // 2, 2, DULL)
             draw_text(body, total, 64 - text_width(total) // 2, 9, LAMP)
-        else:
+        elif not total:
             draw_text(body, "@", 64 - text_width("@", 2) // 2, 2, DULL, 2, True)
 
     @staticmethod

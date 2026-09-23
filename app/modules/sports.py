@@ -76,6 +76,8 @@ class SportsModule(Module):
             mark_x = AWAY_LOGO_X if left else HOME_LOGO_X
             logo = _logo_image(team.logo_png) if team.logo_png else None
             if logo:
+                if logo.size != (LOGO_SIZE, LOGO_SIZE):
+                    logo = logo.resize((LOGO_SIZE, LOGO_SIZE), Image.Resampling.BOX)
                 frame.paste(logo, (mark_x, 9), logo)
             else:
                 draw.rounded_rectangle((mark_x, 9, mark_x + LOGO_SIZE - 1, 9 + LOGO_SIZE - 1), radius=2,

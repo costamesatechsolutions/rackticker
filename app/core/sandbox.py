@@ -47,16 +47,32 @@ def plugin_env(data_dir):
     return env
 
 
+# Each plugin process leads its own process group, so killing it takes along anything it
+# started (ffmpeg, yt-dlp…) instead of leaving those running with no one to reap them.
+GROUP = {"start_new_session": True} if hasattr(os, "killpg") else {}
+
+
+def kill_tree(process):
+    if GROUP:
+        try:
+            os.killpg(process.pid, 9)
+            return
+        except (ProcessLookupError, PermissionError):
+            pass
+    if process.returncode is None:
+        process.kill()
+
+
 async def describe(folder, timeout=25):
     """Load a plugin in a throwaway process and return what it declares."""
     process = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "app.sandbox_child", str(folder), "--describe",
         stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        cwd=str(folder), env=plugin_env(folder))
+        cwd=str(folder), env=plugin_env(folder), **GROUP)
     try:
         out, err = await asyncio.wait_for(process.communicate(), timeout)
     except asyncio.TimeoutError:
-        process.kill()
+        kill_tree(process)
         await process.wait()
         raise ValueError("The plugin took too long to load")
     if len(out) < 4:
@@ -124,7 +140,7 @@ class PluginProcess:
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "app.sandbox_child",
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            cwd=str(self.data_dir), env=plugin_env(self.data_dir))
+            cwd=str(self.data_dir), env=plugin_env(self.data_dir), **GROUP)
         self.process = process
         self.heard = time.monotonic()
         self.tasks = [asyncio.create_task(self._read(process)), asyncio.create_task(self._errors(process)),
@@ -152,8 +168,10 @@ class PluginProcess:
                 process.stdin.close()
                 await asyncio.wait_for(process.wait(), 2)
             except (asyncio.TimeoutError, OSError, ConnectionError):
-                process.kill()
+                kill_tree(process)
                 await process.wait()
+        if process:
+            kill_tree(process)  # anything it started and left behind
 
     def send(self, message):
         process = self.process
@@ -170,7 +188,7 @@ class PluginProcess:
         culprit.error = reason
         self.culprit = culprit.name
         if self.process is not None and self.process.returncode is None:
-            self.process.kill()
+            kill_tree(self.process)
 
     async def _read(self, process):
         reason = "exited"
@@ -200,8 +218,7 @@ class PluginProcess:
             reason = "sent a malformed message"
         except asyncio.CancelledError:
             raise
-        if process.returncode is None:
-            process.kill()
+        kill_tree(process)
         code = await process.wait()
         if process is not self.process:
             return  # stopped on purpose

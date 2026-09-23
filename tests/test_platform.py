@@ -304,3 +304,23 @@ class SmoothCrawlTests(unittest.IsolatedAsyncioTestCase):
         frames = await self.watch(1.2)
         self.assertTrue(frames)
         self.assertFalse(any(black for _, black in frames), "a blank frame was shown between screens")
+
+
+@unittest.skipUnless(hasattr(__import__("os"), "killpg"), "process groups are POSIX")
+class ProcessTreeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_killing_a_plugin_process_takes_what_it_started_with_it(self):
+        import os
+        from app.core import sandbox
+        # Stands in for a plugin that shelled out to ffmpeg: the grandchild must not outlive it.
+        process = await asyncio.create_subprocess_exec(
+            "sh", "-c", "sleep 300 & echo $!; wait", stdout=asyncio.subprocess.PIPE, **sandbox.GROUP)
+        grandchild = int(await process.stdout.readline())
+        sandbox.kill_tree(process)
+        await process.wait()
+        for _ in range(50):
+            try:
+                os.kill(grandchild, 0)
+            except ProcessLookupError:
+                return
+            await asyncio.sleep(.02)
+        self.fail("the process the plugin started was left running")

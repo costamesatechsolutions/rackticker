@@ -36,6 +36,10 @@ from app.modules.base import missing, stale_marker
 ENTRY_X = 4
 READ_PAUSE = 1.6
 BUMPER_SECONDS = 1.15
+# Label bar + gap + 2x mixed-case headline (18 rows) run flush to the panel's last
+# row (31) instead of stopping short of it.
+LABEL_BAR_BOTTOM = 10
+HEADLINE_Y = LABEL_BAR_BOTTOM + 4
 ZIPPER_BATCH = 4
 WARM_PAUSE = .12
 BREAKING_RED = (235, 30, 30)
@@ -250,11 +254,14 @@ def caption_colour(row, t=0.0, now=None):
     return MUTED
 
 
+LAMP_BANK_H = 24  # down to the panel's last row: rows 8-31, none left black beneath the strip
+
+
 @lru_cache(maxsize=1)
 def lamp_bank():
-    bank = Image.new("RGB", (128, 20))
+    bank = Image.new("RGB", (128, LAMP_BANK_H))
     pixels = bank.load()
-    for y in range(0, 20, 2):
+    for y in range(0, LAMP_BANK_H, 2):
         for x in range(y // 2 % 2, 128, 2):
             pixels[x, y] = (26, 14, 2)
     return bank
@@ -371,25 +378,29 @@ class NewsModule(Module):
         label = "BREAKING" if hot else row["channel"]
         label_right = text_width(label) + 3
         lit = not hot or flashing(t)
-        draw.rectangle((0, 0, label_right, 8), fill=color if lit else (255, 255, 255))
+        draw.rectangle((0, 0, label_right, LABEL_BAR_BOTTOM), fill=color if lit else (255, 255, 255))
         draw_text(frame, label, 2, 1, (255, 255, 255) if lit else color)
         glint = math.floor((t % 3.2) * 45) - 4
-        for y in range(0 if not hot else 9, 9):     # a glint on red would come out pink
-            x = glint + (8 - y) // 3
+        for y in range(0 if not hot else LABEL_BAR_BOTTOM + 1, LABEL_BAR_BOTTOM + 1):  # a glint on red would come out pink
+            x = glint + (LABEL_BAR_BOTTOM - y) // 3
             if 0 <= x <= label_right:
                 frame.putpixel((x, y), tuple(min(255, c + 90) for c in frame.getpixel((x, y))))
         meta = _caption(row, 127 - label_right - 4)
         if meta:
             draw_tiny(frame, meta, 127 - tiny_width(meta), 2, caption_colour(row))
-        draw_text(frame, row["title"], crawl_once_x(max(0.0, story_t - READ_PAUSE), speed, ENTRY_X), 11, WHITE, 2, True,
-                  mixed=True)
+        draw_text(frame, row["title"], crawl_once_x(max(0.0, story_t - READ_PAUSE), speed, ENTRY_X), HEADLINE_Y,
+                  WHITE, 2, True, mixed=True)
 
     @staticmethod
     def _zipper(frame, rows, key, local, context):
-        frame.paste(lamp_bank(), (0, 8))
+        lamp_top = 8
+        frame.paste(lamp_bank(), (0, lamp_top))
         strip, mask, spans = zipper_strip(key)
+        # Centred in the lamp bank, which now runs to the panel's last row: no black
+        # band was left beneath the strip.
+        strip_y = lamp_top + (LAMP_BANK_H - strip.height) // 2
         x = crawl_once_x(max(0.0, local - READ_PAUSE), context.config["display"]["scroll_speed"], ENTRY_X)
-        frame.paste(strip, (x, 9), mask)
+        frame.paste(strip, (x, strip_y), mask)
         now = context.now
         clock = f"{now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}"
         draw_tiny(frame, "NEWS", 1, 2, (255, 176, 20))

@@ -93,6 +93,13 @@
       "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/url_data"
     },
     {
+      "id": "video_player",
+      "name": "Video player",
+      "author": "Costa Mesa Tech Solutions",
+      "description": "Loops a short clip on the panel: a local file, a direct video URL, or any live stream ffmpeg can open (mp4, GIF, HLS, RTSP/RTMP). Ships playing a free demo clip out of the box.",
+      "url": "https://github.com/costamesatechsolutions/rackticker-community-plugins/tree/main/plugins/video_player"
+    },
+    {
       "id": "virtual_aquarium",
       "name": "Virtual Aquarium",
       "author": "Costa Mesa Tech Solutions",

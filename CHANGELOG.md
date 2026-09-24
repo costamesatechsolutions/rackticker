@@ -17,6 +17,10 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
   before the next try, up to a minute, bundled and installed plugins alike, and saving new
   settings asks again straight away. On the test rack a price link was being refused by its
   server ("too many requests") every five seconds, all day.
+- **No half-second freeze when a plane comes into range.** The ADS-B receiver's files, and
+  the aircraft database a new arrival is looked up in, are parsed in the helper process
+  instead of on a thread that held up the display; installing a plugin unpacks its
+  download off the display's loop too.
 - Sportsbook: a team without a logo gets dark letters on a light team colour; Boston's gold
   had white letters that could not be read.
 

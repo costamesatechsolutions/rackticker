@@ -8,6 +8,7 @@ once in a sandbox process before it replaces anything that was there.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -164,10 +165,12 @@ class Installer:
         self.directory.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=self.directory))
         try:
-            safe_extract(data, staging / "unpacked")
+            # On a worker thread: a GitHub archive is the whole repository, and unpacking
+            # it on the display's own loop froze the panel for a second on a Pi.
+            await asyncio.to_thread(safe_extract, data, staging / "unpacked")
             return await self._place(find_plugin(staging / "unpacked", folder), source, expected)
         finally:
-            shutil.rmtree(staging, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, staging, ignore_errors=True)
 
     async def from_folder(self, folder, source=None):
         """Copy a local folder in (used by tests and by developers on the device)."""

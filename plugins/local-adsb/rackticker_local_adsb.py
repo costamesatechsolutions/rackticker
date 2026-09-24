@@ -286,6 +286,22 @@ def read_json(path):
     return value
 
 
+def read_receiver(aircraft_path, receiver_path, settings, now):
+    """The receiver's files, read and sorted into aircraft, for offload(): parsing
+    them, and the aircraft database files a new arrival is looked up in, holds the
+    GIL, so on a thread it froze the panel for half a second as a plane came into
+    range. In the helper process it costs the display nothing."""
+    data, receiver = read_json(aircraft_path), read_json(receiver_path)
+    candidates = []
+    timestamp, winner, metadata = select_aircraft(data, receiver, settings, now, candidates)
+    return receiver, timestamp, winner, metadata, candidates
+
+
+def find_airframe(identity):
+    """airframes.find() for offload()."""
+    return airframes.find(identity)
+
+
 def select_aircraft(data, receiver, settings, now, collect=None):
     """Nearest airborne aircraft inside the radius. `collect`, when given, receives
     every candidate (distance, identity, Flight, lat, lon), nearest first."""
@@ -565,7 +581,7 @@ class LocalADSB(Provider):
             aircraft = {**aircraft, **{k: v for k, v in spare.items() if v}}
             facts["aircraft"] = aircraft
         if not str(aircraft.get("icao_type") or "").strip():
-            local = airframes.find(identity)
+            local = await offload(find_airframe, identity)
             if local:
                 facts["aircraft"] = {**aircraft, **local}
         payload = {"response": facts} if facts else None
@@ -709,10 +725,8 @@ class LocalADSB(Provider):
         source, feed = "local_adsb", None
         candidates = []
         try:
-            data, receiver = await asyncio.gather(
-                asyncio.to_thread(read_json, settings["aircraft_path"]),
-                asyncio.to_thread(read_json, settings["receiver_path"]))
-            timestamp, winner, metadata = select_aircraft(data, receiver, settings, time.time(), candidates)
+            receiver, timestamp, winner, metadata, candidates = await offload(
+                read_receiver, settings["aircraft_path"], settings["receiver_path"], dict(settings), time.time())
         except (OSError, ValueError) as exc:
             candidates.clear()
             data, receiver, feed = await self._network(settings, exc)

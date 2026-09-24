@@ -324,3 +324,56 @@ class ProcessTreeTests(unittest.IsolatedAsyncioTestCase):
                 return
             await asyncio.sleep(.02)
         self.fail("the process the plugin started was left running")
+
+
+class SandboxHoldTests(unittest.TestCase):
+    """An installed plugin's hold() means what it does in-process: finish the item that
+    was showing when the dwell ran out, not the item that was showing on the first frame."""
+
+    def test_hold_is_asked_only_once_the_display_wants_to_move_on(self):
+        from PIL import Image
+        from app.core.story import Storyboard
+        from app.sandbox_child import Host
+        from rackticker import Module, Plugin
+
+        class Cards(Module):
+            name = "cards"
+
+            def __init__(self):
+                self.board = Storyboard()
+
+            def _card(self, context):
+                build = lambda _visit: [(index, 5.0) for index in range(4)]
+                self.board.sync(context.animation_time, build, context.scene)
+                return self.board.current(context.animation_time, build)
+
+            def hold(self, context):
+                return bool(self._card(context)) and self.board.hold()
+
+            def render(self, context):
+                self._card(context)
+                return Image.new("RGB", (128, 32))
+
+        sent = []
+        channel = unittest.mock.Mock(send=lambda header, payload=b"": sent.append(header))
+        host = Host(Plugin("cards", "Cards", module=Cards), channel)
+        for t in range(0, 12):      # the first two cards and into the third: the dwell hasn't run out
+            host.render({"op": "render", "t": float(t), "scene": 1})
+        self.assertFalse(any(header.get("asked") for header in sent))
+        host.render({"op": "render", "t": 12.0, "scene": 1, "hold": True})
+        self.assertTrue(sent[-1]["asked"] and sent[-1]["hold"], "card 3 is on screen and must finish")
+        host.render({"op": "render", "t": 14.9, "scene": 1})
+        self.assertTrue(sent[-1]["hold"])
+        host.render({"op": "render", "t": 15.1, "scene": 1})
+        self.assertFalse(sent[-1]["hold"], "card 3 is done; the playlist may move on")
+
+    def test_the_display_waits_for_an_answer_for_this_visit(self):
+        from app.core.sandbox import SandboxHost
+        host = SandboxHost.__new__(SandboxHost)
+        host.state, host.hold_scene, host.hold_answer = "running", None, (3, False)
+        self.assertTrue(host.ask_hold(4))           # no answer for this visit yet
+        self.assertEqual(host.hold_scene, 4)
+        host.hold_answer = (4, False)
+        self.assertFalse(host.ask_hold(4))
+        host.state = "restarting"
+        self.assertFalse(host.ask_hold(4))

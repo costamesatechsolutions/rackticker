@@ -100,6 +100,7 @@ class Host:
         self.settings = dict(plugin.defaults)
         self.display = dict(DEFAULT_DISPLAY)
         self.snapshots = {}
+        self.hold_scene = None     # the visit the display has asked to hold, if any
         context = PluginContext(plugin.name, lambda: self.settings, self.emit)
         self.module = plugin.module()
         self.provider = plugin.provider(context) if plugin.provider else None
@@ -123,17 +124,22 @@ class Host:
     def render(self, message):
         from app.core.renderer import validate_frame
         context = self.context(message)
+        if message.get("hold"):
+            self.hold_scene = context.scene
+        # hold() is asked only once the display wants to move on, as it is in-process: a
+        # screen that finishes "the item showing now" must not latch onto the first frame.
+        asked = self.hold_scene == context.scene
         started = time.perf_counter()
         try:
             available = bool(self.module.available(context))
-            hold = bool(self.module.hold(context))
+            hold = asked and bool(self.module.hold(context))
             frame = validate_frame(self.module.render(context))
             interval = float(self.module.refresh_interval(context))
         except Exception as exc:
             traceback.print_exc()
             self.send({"op": "frame", "error": f"{type(exc).__name__}: {exc}"[:300], "scene": context.scene})
             return
-        self.send({"op": "frame", "available": available, "hold": hold,
+        self.send({"op": "frame", "available": available, "hold": hold, "asked": asked,
                    "interval": interval if interval == interval else 1.0,
                    "ms": round((time.perf_counter() - started) * 1000, 1),
                    "scene": context.scene, "t": context.animation_time}, frame.tobytes())

@@ -297,7 +297,8 @@ class SandboxHost:
         self.asked = (None, None)       # (scene, t) of the last frame requested
         self.received = (None, b"")     # (scene, pixels) of the last frame that arrived
         self.available = False
-        self.hold = False
+        self.hold_scene = None          # the visit the display has asked to hold
+        self.hold_answer = (None, False)  # (scene, hold) as the plugin last answered it
         self.interval = 0.0             # until the plugin says how often it changes, assume every frame
         self.pending_at = None
         self.render_ms = deque(maxlen=60)
@@ -397,6 +398,7 @@ class SandboxHost:
         moment, sent = first, False
         while moment <= last + 1e-9:
             if self.send({"op": "render", "t": moment, "scene": context.scene,
+                          "hold": self.hold_scene == context.scene,
                           "now": wall + (moment - now) / max(config["simulator"]["animation_speed"], 1e-6)}):
                 self.pending_at = self.pending_at or time.monotonic()
                 self.asked = (context.scene, moment)
@@ -422,6 +424,15 @@ class SandboxHost:
                 self.frame = Image.frombytes("RGB", (128, 32), pixels)
         return self.frame if self.frame_scene == context.scene else None
 
+    def ask_hold(self, scene):
+        """The display's dwell is up: should it wait for this screen to finish? Until
+        the plugin has answered for this visit, yes (the scheduler bounds the wait)."""
+        if self.state != "running":
+            return False
+        self.hold_scene = scene
+        answered, hold = self.hold_answer
+        return hold if answered == scene else True
+
     def has_frame(self, scene):
         return self.frame_scene == scene or any(item[1] == scene for item in self.queue)
 
@@ -441,7 +452,8 @@ class SandboxHost:
             if len(payload) != FRAME_BYTES:
                 return
             self.available = bool(header.get("available"))
-            self.hold = bool(header.get("hold"))
+            if header.get("asked"):
+                self.hold_answer = (header.get("scene"), bool(header.get("hold")))
             self.interval = max(1 / 60, min(3600.0, float(header.get("interval") or 1)))
             self.render_ms.append(float(header.get("ms") or 0))
             self.queue.append((float(header.get("t") or 0.0), header.get("scene"), payload))
@@ -496,7 +508,7 @@ class SandboxModule(Module):
         return max(1 / context.config["display"]["fps"], min(self.host.interval, 1.0))
 
     def hold(self, context):
-        return self.host.hold
+        return self.host.ask_hold(context.scene)
 
     def render(self, context):
         self.host.request(context)

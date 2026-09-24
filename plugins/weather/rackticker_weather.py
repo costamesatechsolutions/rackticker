@@ -155,11 +155,13 @@ def sky(frame, kind, t, is_day=True, x=1, y=4):
                 if math.floor(t * 2 + n) % 3:
                     plot(frame, pixels, sx, sy, (200, 210, 255))
     if kind == "fog":
-        for row, gy in enumerate((y + 6, y + 11, y + 16)):
+        # A cloud with mist drifting under it: bare lines don't read as weather.
+        _cloud(draw, x + 1 + round(math.sin(t * .9) * 1.2), y + 1, dim(cloud, .85))
+        for row, gy in enumerate((y + 15, y + 19)):
             shift = math.floor(t * (4 + row * 2)) % 6
             for gx in range(x, x + 22):
                 if (gx + shift) % 6 < 4:
-                    pixels[gx, gy] = dim(cloud, .8 - row * .15)
+                    pixels[gx, gy] = dim(cloud, .8 - row * .2)
         return
     if kind in ("partly", "cloud", "rain", "snow", "storm"):
         drift = round(math.sin(t * .9) * 1.2)
@@ -200,8 +202,11 @@ def mini_sky(frame, kind, x, y):
     if kind == "storm":
         draw.line((x + 7, y + 8, x + 5, y + 11), fill=(255, 236, 90))
     if kind == "fog":
-        for gy in (y + 3, y + 6, y + 9):
-            draw.line((x, gy, x + 11, gy), fill=(150, 160, 170))
+        color = (150, 160, 170)
+        draw.ellipse((x, y + 2, x + 6, y + 7), fill=color)
+        draw.ellipse((x + 4, y, x + 11, y + 7), fill=color)
+        draw.line((x + 1, y + 9, x + 11, y + 9), fill=dim(color, .75))
+        draw.line((x, y + 11, x + 9, y + 11), fill=dim(color, .55))
 
 
 def heat(temp, low, high):

@@ -2,7 +2,7 @@
   "id": "news",
   "name": "News desk",
   "entry": "rackticker_news.py",
-  "description": "Network-style news desk: rotating channels (top stories, U.S., world, money, sports, showbiz, tech) from any RSS/Atom feeds, drawn two ways:",
+  "description": "Network-style news desk: rotating channels (top stories, U.S., world, money, sports, showbiz, tech) from any RSS/Atom feeds: whole headlines two lines at a time, a TV lower third, or the Times Square zipper.",
   "author": "RackTicker",
-  "version": "1.0.0"
+  "version": "1.1.0"
 }

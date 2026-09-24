@@ -211,7 +211,9 @@ class Sportsbook(Module):
             return
         color = team_color(team)
         draw.rounded_rectangle((x, LOGO_TOP, x + LOGO_SIZE - 1, LOGO_TOP + LOGO_SIZE - 1), radius=2, fill=color)
-        ink = (0, 0, 0) if sum(color) > 480 else WHITE
+        # By how bright the colour looks, not the sum of its channels: Boston's gold
+        # summed under the old cut-off and got white letters nobody could read.
+        ink = (0, 0, 0) if color[0] * .299 + color[1] * .587 + color[2] * .114 > 150 else WHITE
         draw_tiny(frame, team.abbreviation, x + LOGO_SIZE // 2 - tiny_width(team.abbreviation) // 2,
                  LOGO_TOP + LOGO_SIZE // 2 - 3, ink)
 

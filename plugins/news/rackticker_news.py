@@ -1,11 +1,13 @@
 """Network-style news desk: rotating channels (top stories, U.S., world, money,
-sports, showbiz, tech) from any RSS/Atom feeds, drawn two ways:
+sports, showbiz, tech) from any RSS/Atom feeds, drawn three ways:
 
+* headline - the whole headline on two lines that roll up like live captions,
+             paced to be read, not watched go by (the default)
 * breaking - a TV lower third: channel bumper wipe, then the headline crawls
 * zipper   - the Times Square news zipper: amber lamp-bank lettering between
              red, white and blue chase lights
 
-Every headline finishes crawling before the playlist moves on. No keys.
+Every headline finishes before the playlist moves on. No keys.
 """
 from __future__ import annotations
 
@@ -25,9 +27,9 @@ import aiohttp
 from PIL import Image, ImageDraw
 
 from rackticker import Plugin, Provider, Snapshot, Module, new_frame, draw_text, offload
-from app.core.fonts import draw_tiny, text_width, tiny_width
-from app.core.fx import ease_in, ease_out
-from app.core.renderer import MUTED, WHITE, crawl_once_x
+from app.core.fonts import draw_tiny, text_mask, text_width, tiny_width, wrap_text
+from app.core.fx import ease_in, ease_in_out, ease_out
+from app.core.renderer import MUTED, WHITE
 from app.core.story import Storyboard
 from app.modules.base import missing, stale_marker
 
@@ -40,6 +42,15 @@ BUMPER_SECONDS = 1.15
 # row (31) instead of stopping short of it.
 LABEL_BAR_BOTTOM = 10
 HEADLINE_Y = LABEL_BAR_BOTTOM + 4
+# Headline cards: a slimmer label bar, then two 5x7 lines on a 10-row pitch. Two lines
+# hold about 40 letters, where a 2x crawl only ever shows ten of them at once.
+CARD_BAR_BOTTOM = 8
+CARD_TOP = 12
+LINE_PITCH = 10
+LINE_WIDTH = 126
+READ_CPS = 12          # letters a second someone across the room reads comfortably
+REVEAL_SECONDS = .4
+ROLL_SECONDS = .3
 ZIPPER_BATCH = 4
 WARM_PAUSE = .12
 BREAKING_RED = (235, 30, 30)
@@ -64,6 +75,65 @@ CHANNEL_COLORS = (("TOP", (215, 28, 40)), ("BREAK", (215, 28, 40)), ("BUSINESS",
                   ("ENTERTAIN", (205, 40, 150)), ("TECH", (0, 160, 165)), ("SCIENCE", (50, 150, 110)),
                   ("LOCAL", (200, 135, 0)), ("WEATHER", (40, 115, 220)), ("US", (30, 75, 205)),
                   ("NATION", (30, 75, 205)))
+
+
+def crawl_x(t, speed, start=ENTRY_X):
+    """Left edge of 2x lettering crawling left. 2x letters are drawn on a 2-pixel grid,
+    so they step two LEDs at a time, at twice the configured speed: just as smooth to
+    the eye as 1x text at that speed, and the headline is read in half the time."""
+    return start - 2 * math.floor(max(0.0, t) * speed + 1e-6)
+
+
+def crawl_seconds(width, speed):
+    return (ENTRY_X + width) / (2 * speed)
+
+
+@lru_cache(maxsize=MAX_ROWS)
+def headline_lines(title):
+    return tuple(wrap_text(title, LINE_WIDTH, mixed=True))
+
+
+@lru_cache(maxsize=MAX_ROWS)
+def card_plan(title):
+    """[(start, dwell)] for each view of a headline card: view v shows lines v and v+1.
+    Each view stays up long enough to read what it adds, then rolls up one line."""
+    lines = headline_lines(title)
+    views, at = [], REVEAL_SECONDS
+    for view in range(max(1, len(lines) - 1)):
+        fresh = lines[:2] if view == 0 else lines[view + 1:view + 2]
+        letters = sum(len(line) for line in fresh)
+        dwell = max(2.0, .8 + letters / READ_CPS) if view == 0 else max(1.5, .4 + letters / READ_CPS)
+        views.append((at, dwell))
+        at += dwell + ROLL_SECONDS
+    return tuple(views)
+
+
+def card_seconds(title):
+    start, dwell = card_plan(title)[-1]
+    return start + dwell + .2
+
+
+def card_scroll(title, t):
+    """How far the card has rolled up, in pixels, at t seconds into it."""
+    plan = card_plan(title)
+    for view, (start, dwell) in enumerate(plan[:-1]):   # the last view stays put
+        roll = start + dwell
+        if t < roll:
+            return view * LINE_PITCH
+        if t < roll + ROLL_SECONDS:
+            return round((view + ease_in_out((t - roll) / ROLL_SECONDS)) * LINE_PITCH)
+    return (len(plan) - 1) * LINE_PITCH
+
+
+@lru_cache(maxsize=MAX_ROWS)
+def card_mask(title):
+    """Every line of a headline, stacked on the card's pitch, as one mask."""
+    lines = headline_lines(title)
+    mask = Image.new("1", (128, max(1, len(lines)) * LINE_PITCH))
+    for index, line in enumerate(lines):
+        glyphs = text_mask(line, 1, False, True)
+        mask.paste(glyphs, (1, index * LINE_PITCH))
+    return mask
 
 
 def channel_color(label):
@@ -310,23 +380,27 @@ class NewsModule(Module):
         speed = context.config["display"]["scroll_speed"]
 
         def build(visit):
-            style = settings["style"] if settings["style"] != "auto" else ("breaking", "zipper")[visit % 2]
+            # Auto is mostly headline cards, which can actually be read, with the
+            # Times Square zipper every third visit for the show of it.
+            style = settings["style"] if settings["style"] != "auto" else ("headline", "headline", "zipper")[visit % 3]
             if style == "zipper":
                 items = []
                 for start in range(0, len(rows), ZIPPER_BATCH):
                     key = tuple((row["channel"], row["title"]) for row in rows[start:start + ZIPPER_BATCH])
                     strip = zipper_strip(key)[0]
                     items.append((("zipper", rows[start:start + ZIPPER_BATCH], key),
-                                  READ_PAUSE + (ENTRY_X + strip.width) / speed))
+                                  READ_PAUSE + crawl_seconds(strip.width, speed)))
                 return items
             items, previous = [], None
             for row in rows:
                 # A story that has just broken gets its own bumper, whatever channel it is on.
                 bumper = row["channel"] != previous or breaking(row)
                 previous = row["channel"]
-                seconds = (READ_PAUSE + (ENTRY_X + text_width(row["title"], 2, True)) / speed + .5
-                           + (BUMPER_SECONDS if bumper else 0))
-                items.append((("breaking", row, bumper), seconds))
+                if style == "headline":
+                    seconds = card_seconds(row["title"])
+                else:
+                    seconds = READ_PAUSE + crawl_seconds(text_width(row["title"], 2, True), speed) + .5
+                items.append(((style, row, bumper), seconds + (BUMPER_SECONDS if bumper else 0)))
             return items
         self.board.sync(context.animation_time, build, context.scene)
         return self.board.current(context.animation_time, build)
@@ -344,6 +418,8 @@ class NewsModule(Module):
         speed = context.config["display"]["scroll_speed"]
         if payload[0] == "zipper":
             self._zipper(frame, payload[1], payload[2], local, context)
+        elif payload[0] == "headline":
+            self._headline(frame, payload[1], payload[2], local, context.animation_time)
         else:
             self._breaking(frame, payload[1], payload[2], local, duration, context.animation_time, speed)
         return stale_marker(frame, snap)
@@ -367,6 +443,55 @@ class NewsModule(Module):
             mask.paste(0, (0, 0, left, 32))
             frame.paste(layer, (0, 0), mask)
 
+    @staticmethod
+    def _label(frame, row, t, bottom):
+        """The channel chip (BREAKING, flashing, for a story under a minute old) with
+        the outlet and the story's age at the other end of the bar."""
+        hot = breaking(row)
+        color = BREAKING_RED if hot else channel_color(row["channel"])
+        draw = ImageDraw.Draw(frame)
+        label = "BREAKING" if hot else row["channel"]
+        label_right = text_width(label) + 3
+        lit = not hot or flashing(t)
+        draw.rectangle((0, 0, label_right, bottom), fill=color if lit else (255, 255, 255))
+        draw_text(frame, label, 2, 1, (255, 255, 255) if lit else color)
+        glint = math.floor((t % 3.2) * 45) - 4
+        for y in range(0 if not hot else bottom + 1, bottom + 1):  # a glint on red would come out pink
+            x = glint + (bottom - y) // 3
+            if 0 <= x <= label_right:
+                frame.putpixel((x, y), tuple(min(255, c + 90) for c in frame.getpixel((x, y))))
+        meta = _caption(row, 127 - label_right - 4)
+        if meta:
+            draw_tiny(frame, meta, 127 - tiny_width(meta), 2, caption_colour(row))
+
+    def _headline(self, frame, row, bumper, local, t):
+        """The whole headline, two lines at a time, rolling up a line once the eye
+        has had time to take in what is there."""
+        hot = breaking(row)
+        if bumper and local < BUMPER_SECONDS:
+            self._bumper(frame, "BREAKING" if hot else row["channel"], local,
+                         BREAKING_RED if hot else channel_color(row["channel"]))
+            return
+        story_t = local - (BUMPER_SECONDS if bumper else 0)
+        self._label(frame, row, t, CARD_BAR_BOTTOM)
+        title = row["title"]
+        mask = card_mask(title)
+        # A one-line headline sits in the middle of the space under the bar.
+        top = CARD_TOP if len(headline_lines(title)) > 1 else CARD_TOP + LINE_PITCH // 2
+        # One row above the first line's capitals: the descenders of a line that has
+        # rolled away (the g of "signals") would otherwise linger there as stray dots.
+        window_top = CARD_TOP - 1
+        scroll = card_scroll(title, story_t)
+        # Only what shows between the bar and the panel's last row: lines rolling
+        # away leave under the bar rather than over it.
+        source_top = window_top - top + scroll
+        window = mask.crop((0, source_top, 128, source_top + 32 - window_top))
+        # Lettering is typed on from the left as the story arrives.
+        if story_t < REVEAL_SECONDS:
+            edge = round(128 * ease_out(story_t / REVEAL_SECONDS))
+            window.paste(0, (edge, 0, 128, window.height))
+        frame.paste(WHITE, (0, window_top, 128, 32), window)
+
     def _breaking(self, frame, row, bumper, local, duration, t, speed):
         hot = breaking(row)
         color = BREAKING_RED if hot else channel_color(row["channel"])
@@ -374,21 +499,8 @@ class NewsModule(Module):
             self._bumper(frame, "BREAKING" if hot else row["channel"], local, color)
             return
         story_t = local - (BUMPER_SECONDS if bumper else 0)
-        draw = ImageDraw.Draw(frame)
-        label = "BREAKING" if hot else row["channel"]
-        label_right = text_width(label) + 3
-        lit = not hot or flashing(t)
-        draw.rectangle((0, 0, label_right, LABEL_BAR_BOTTOM), fill=color if lit else (255, 255, 255))
-        draw_text(frame, label, 2, 1, (255, 255, 255) if lit else color)
-        glint = math.floor((t % 3.2) * 45) - 4
-        for y in range(0 if not hot else LABEL_BAR_BOTTOM + 1, LABEL_BAR_BOTTOM + 1):  # a glint on red would come out pink
-            x = glint + (LABEL_BAR_BOTTOM - y) // 3
-            if 0 <= x <= label_right:
-                frame.putpixel((x, y), tuple(min(255, c + 90) for c in frame.getpixel((x, y))))
-        meta = _caption(row, 127 - label_right - 4)
-        if meta:
-            draw_tiny(frame, meta, 127 - tiny_width(meta), 2, caption_colour(row))
-        draw_text(frame, row["title"], crawl_once_x(max(0.0, story_t - READ_PAUSE), speed, ENTRY_X), HEADLINE_Y,
+        self._label(frame, row, t, LABEL_BAR_BOTTOM)
+        draw_text(frame, row["title"], crawl_x(story_t - READ_PAUSE, speed), HEADLINE_Y,
                   WHITE, 2, True, mixed=True)
 
     @staticmethod
@@ -399,7 +511,7 @@ class NewsModule(Module):
         # Centred in the lamp bank, which now runs to the panel's last row: no black
         # band was left beneath the strip.
         strip_y = lamp_top + (LAMP_BANK_H - strip.height) // 2
-        x = crawl_once_x(max(0.0, local - READ_PAUSE), context.config["display"]["scroll_speed"], ENTRY_X)
+        x = crawl_x(local - READ_PAUSE, context.config["display"]["scroll_speed"])
         frame.paste(strip, (x, strip_y), mask)
         now = context.now
         clock = f"{now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}"
@@ -420,6 +532,9 @@ class NewsModule(Module):
                 draw_tiny(frame, caption, 64 - tiny_width(caption) // 2, 2, colour)
 
 
+STYLES = ("auto", "headline", "breaking", "zipper")
+
+
 def migrate(settings):
     settings.pop("cycle_seconds", None)
     feed, label = settings.pop("feed_url", None), settings.pop("source_label", None)
@@ -436,8 +551,8 @@ def validate(settings):
             not re.fullmatch(r"[A-Z0-9 &]{1,14}", label) or not url.startswith("https://") or len(url) > 300
             for label, url in channels):
         raise ValueError("channels must be 1–8 LABEL=https://feed entries separated by |")
-    if settings.get("style") not in ("auto", "breaking", "zipper"):
-        raise ValueError("style must be auto, breaking or zipper")
+    if settings.get("style") not in STYLES:
+        raise ValueError("style must be auto, headline, breaking or zipper")
     age = settings.get("max_age_hours")
     if isinstance(age, bool) or not isinstance(age, (int, float)) or not 1 <= age <= 72:
         raise ValueError("max_age_hours must be 1–72")
@@ -449,8 +564,9 @@ def validate(settings):
 plugin = Plugin("news", "News desk", module=NewsModule, provider=NewsProvider,
                 defaults={"channels": DEFAULT_CHANNELS, "style": "auto", "refresh_seconds": 300, "max_age_hours": 12},
                 validate_settings=validate, migrate_settings=migrate,
-                choices={"style": ("auto", "breaking", "zipper")},
+                choices={"style": STYLES},
                 help={"channels": "Up to 8 LABEL=https://rss-feed entries separated by |",
-                      "style": "breaking is a TV lower third, zipper is Times Square; auto alternates"},
+                      "style": "headline shows whole headlines two lines at a time, breaking crawls them "
+                               "along a TV lower third, zipper is Times Square; auto is mostly headlines"},
     ui={"refresh_seconds": {"advanced": True},
         "max_age_hours": {"type": "slider", "min": 1, "max": 72, "unit": "h", "label": "Skip stories older than"}, "channels": {"advanced": True, "label": "Channels (LABEL=feed URL, separated by |)"}})

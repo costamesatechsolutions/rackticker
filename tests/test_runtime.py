@@ -91,6 +91,24 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(stale_frame.crop((0,24,128,32)).tobytes(), fresh_frame.crop((0,24,128,32)).tobytes())
         self.assertFalse(self.r.snapshots["sports"].stale)
 
+    async def test_a_failing_provider_is_asked_less_often_and_again_at_once_when_it_recovers(self):
+        from app.providers.base import retry_seconds
+        self.assertEqual([retry_seconds(n) for n in range(1, 7)], [5, 10, 20, 40, 60, 60])
+        asked = []
+        async def down():
+            asked.append(time.monotonic())
+            raise ConnectionError("429 too many requests")
+        with patch.object(self.r.providers["sports"], "fetch", down):
+            for _ in range(3):
+                await self.r.refresh_provider("sports")
+        self.assertGreater(self.r.retry_at["sports"] - time.monotonic(), 15)
+        await self.r.refresh_provider("sports")             # it answers again
+        self.assertNotIn("sports", self.r.retry_at)
+        with patch.object(self.r.providers["sports"], "fetch", down):
+            await self.r.refresh_provider("sports")
+        self.r.apply_config(self.r.config)                  # new settings: ask again straight away
+        self.assertEqual(self.r.retry_at, {})
+
     async def test_old_provider_timestamp_is_stale(self):
         old = replace(self.r.snapshots["sports"], updated_at=utcnow()-timedelta(minutes=2))
         async def fetch(): return old

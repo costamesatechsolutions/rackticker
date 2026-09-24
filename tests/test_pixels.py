@@ -78,3 +78,19 @@ class PixelTests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class WrapTextTests(unittest.TestCase):
+    def test_whole_words_that_fit(self):
+        from app.core.fonts import text_width, wrap_text
+        lines = wrap_text("Dodgers clinch the NL West with a walk-off homer", 126, mixed=True)
+        self.assertEqual(" ".join(lines), "Dodgers clinch the NL West with a walk-off homer")
+        self.assertTrue(all(text_width(line, 1, True) <= 126 for line in lines))
+
+    def test_a_word_wider_than_a_line_is_split_not_lost(self):
+        from app.core.fonts import text_width, wrap_text
+        word = "https://example.com/an-extremely-long-address-that-never-ends"
+        lines = wrap_text(word, 60)
+        self.assertEqual("".join(lines), word.upper())
+        self.assertTrue(all(text_width(line) <= 60 for line in lines))
+        self.assertEqual(wrap_text("", 60), [])

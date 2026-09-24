@@ -2,6 +2,24 @@
 
 All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
+## Unreleased
+
+- **Headlines you can actually read.** The news desk crawled every headline past in 2×
+  letters at 30 px/s: ten letters on the panel at a time, two and a half a second, half a
+  minute a headline. The desk now shows the whole headline in 5×7 mixed case, two lines
+  (about forty letters) at a time, rolling up a line once the eye has had time to take it
+  in: a typical headline reads in eight seconds. It is the new `headline` style and what
+  `auto` shows, with the Times Square zipper every third visit. The zipper and the TV lower
+  third still crawl, but their 2× letters now step two LEDs at a time at twice the speed,
+  which looks just as smooth and halves the wait.
+- `wrap_text(text, width, scale, mixed)` is in the plugin API: whole-word lines that fit.
+- **A feed that is down is not asked every five seconds.** Each failure doubles the wait
+  before the next try, up to a minute, bundled and installed plugins alike, and saving new
+  settings asks again straight away. On the test rack a price link was being refused by its
+  server ("too many requests") every five seconds, all day.
+- Sportsbook: a team without a logo gets dark letters on a light team colour; Boston's gold
+  had white letters that could not be read.
+
 ## 1.5.0 - 2026-09-20
 
 - **Smoother, and no more freezes.** The rack's own log showed the display stalling for up

@@ -101,6 +101,7 @@ class Host:
         self.display = dict(DEFAULT_DISPLAY)
         self.snapshots = {}
         self.hold_scene = None     # the visit the display has asked to hold, if any
+        self.settings_changed = None   # set when new settings arrive, to ask a failing provider again now
         context = PluginContext(plugin.name, lambda: self.settings, self.emit)
         self.module = plugin.module()
         self.provider = plugin.provider(context) if plugin.provider else None
@@ -148,6 +149,8 @@ class Host:
         settings = message.get("settings")
         if isinstance(settings, dict):
             self.settings = self.registry.settings(self.plugin.name, settings)
+            if self.settings_changed is not None:
+                self.settings_changed.set()
         if isinstance(message.get("display"), dict):
             self.display = {**DEFAULT_DISPLAY, **message["display"]}
 
@@ -161,7 +164,10 @@ class Host:
 
     async def poll(self):
         from app.core.models import Snapshot, utcnow
+        from app.providers.base import retry_seconds
         name = self.plugin.name
+        failures = 0
+        self.settings_changed = asyncio.Event()
         while True:
             previous = self.snapshots.get(name)
             try:
@@ -170,7 +176,9 @@ class Host:
                     raise TypeError("Provider must return a Snapshot")
                 if (utcnow() - result.updated_at).total_seconds() > 30:
                     result = replace(result, stale=True)
+                failures = 0
             except Exception as exc:
+                failures += 1
                 message = str(exc) or type(exc).__name__
                 # Say it once. A plugin waiting to be logged in fails every few
                 # seconds, and that used to fill the log (and wear the card) all day.
@@ -184,7 +192,15 @@ class Host:
             except Exception:
                 available = False
             self.send({"op": "status", "available": available, "error": result.error})
-            await asyncio.sleep(POLL_SECONDS)
+            # A failing provider is asked less and less often, up to once a minute, but
+            # straight away once its settings change (the fix may be a corrected link).
+            self.settings_changed.clear()
+            wait = retry_seconds(failures, POLL_SECONDS) if failures else POLL_SECONDS
+            try:
+                await asyncio.wait_for(self.settings_changed.wait(), wait)
+                failures = 0
+            except asyncio.TimeoutError:
+                pass
 
 
 def reader(loop, queue):

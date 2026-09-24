@@ -132,6 +132,7 @@ screen can look as good as the ones that ship:
 | `Storyboard` | Plays variable-length items back to back (headlines, cards, phrases), resumes where the last visit stopped, and never swaps data under an item on screen. |
 | `Module.hold(context)` | Return `True` while mid-story so the playlist waits for the current item to finish (bounded by the scheduler). `Storyboard.hold()` implements it for you. |
 | `draw_text(..., scale=2, smooth=True)` | Rounded Scale2x headline lettering; `draw_tiny` is a 3×5 font for dense tables. |
+| `wrap_text(text, width, scale=1, mixed=False)` | Whole-word lines that fit `width` pixels. Long sentences read far faster as two lines that roll up than as one line crawling past. |
 | `draw_text(..., mixed=True)` | Keeps lowercase, drawn like station dot-matrix boards with true descenders (a mixed line is 9 rows, not 7). Use it for names and sentences; keep codes, scores and prices in capitals. |
 | `loop_strip`, `crawl_once_x` | Endless or one-pass crawls. Pre-render a strip once per data change; each frame is then just a paste. |
 | `sprite(ascii_art, palette)`, `stamp` | Pixel-art sprites from strings, cached. |

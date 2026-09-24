@@ -25,7 +25,7 @@ or run `python -m app.dev new my_plugin`. See [Make a screen](#make-a-screen).
 | --- | --- |
 | Stock tape | The day's movers and your watchlist with company names, sparklines and each company's latest headline, under a flipping index header |
 | Sportsbook | A Vegas odds board: spreads, totals and moneylines, big live scores with the bases, count and outs or the down and distance, banners for big plays, fireworks when your team scores |
-| News desk | Network channels as a TV lower third or a Times Square zipper, in mixed-case headlines |
+| News desk | Network channels with whole headlines two lines at a time, a TV lower third or a Times Square zipper |
 | Flights | The planes overhead: airline mark, flight number and route, then destination, aircraft, altitude and time to go; a list when several are about, a fly-by when one is directly overhead. Local ADS-B receiver or a free network feed |
 | Weather | Animated sky, hourly chart and four-day forecast |
 | Pixel Town | A small town on real time in three districts: a beach with the real tide and swell, a high street with a taco truck and your weather, and a station with real departures. The panel is a camera that drifts between them. The beach and station use the Surf and Departures plugins when installed |

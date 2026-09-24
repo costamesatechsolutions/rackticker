@@ -174,6 +174,28 @@ def text_width(text, scale=1, mixed=False):
     return max(0, sum(glyph_width(c) + 1 for c in text) - 1) * scale
 
 
+def wrap_text(text, width, scale=1, mixed=False):
+    """Lines of whole words, each at most `width` pixels wide. A word that is wider
+    than a line on its own (a URL, a long compound) is split where it has to be."""
+    lines, line = [], ""
+    for word in normalize(text, mixed=mixed).split():
+        joined = f"{line} {word}" if line else word
+        if text_width(joined, scale, mixed) <= width:
+            line = joined
+            continue
+        if line:
+            lines.append(line)
+        line = word
+        while text_width(line, scale, mixed) > width:
+            cut = max(1, next((n for n in range(len(line) - 1, 0, -1)
+                               if text_width(line[:n], scale, mixed) <= width), 1))
+            lines.append(line[:cut])
+            line = line[cut:]
+    if line:
+        lines.append(line)
+    return lines
+
+
 def glyph_spans(text, scale=1, mixed=False):
     """(char, x, width) for each normalized glyph, for per-letter animation."""
     spans, x = [], 0

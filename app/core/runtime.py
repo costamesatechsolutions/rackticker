@@ -23,7 +23,7 @@ except ImportError:         # Windows: no page-fault counts, everything else wor
 
 from app.core.plugins import PluginRegistry, BUILTINS
 from app.plugin_api import PluginContext
-from app.providers.base import Provider
+from app.providers.base import Provider, retry_seconds
 from app.outputs.base import FrameSink
 from app.core import memory, offload
 from app.core.fonts import centered
@@ -136,6 +136,7 @@ class Runtime:
         self.scheduler = Scheduler(from_config(config))
         self.failed_until = {}
         self.failures = {}          # consecutive failed refreshes, per provider
+        self.retry_at = {}          # provider -> monotonic time a failing provider is next asked
         self.frame = new_frame()
         self.frame_count = 0
         self.history = deque(maxlen=30)
@@ -421,10 +422,12 @@ class Runtime:
             if previous and previous.error:
                 self.record(name, "provider recovered")
             self.failures[name] = 0
+            self.retry_at.pop(name, None)
         except Exception as exc:
             # Timeouts stringify to "", which logged as a blank error on the Pi.
             message = str(exc) or type(exc).__name__
             self.failures[name] = self.failures.get(name, 0) + 1
+            self.retry_at[name] = time.monotonic() + retry_seconds(self.failures[name])
             if previous and self.failures[name] < FAILURES_BEFORE_STALE and not self.provider_fault:
                 result = replace(previous, error=message)
             else:
@@ -440,8 +443,10 @@ class Runtime:
 
     async def poll_providers(self):
         while True:
+            now = time.monotonic()
             async with self.provider_lock:
-                await asyncio.gather(*(self.refresh_provider(name) for name in self.providers))
+                await asyncio.gather(*(self.refresh_provider(name) for name in self.providers
+                                       if now >= self.retry_at.get(name, 0) - .5))
             if self.system_scenario == "normal":
                 self.read_system()
             await asyncio.sleep(5)
@@ -468,6 +473,7 @@ class Runtime:
 
     def apply_config(self, config):
         self.config = config
+        self.retry_at.clear()       # new settings may be the fix: ask failing providers again now
         for host in self.sandboxes.values():
             host.configure()
         self.message = self.config_message()

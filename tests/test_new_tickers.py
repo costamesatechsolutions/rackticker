@@ -12,6 +12,7 @@ from app.core.models import Snapshot, Message, SystemStatus
 from app.core.plugins import PluginRegistry
 from app.modules.base import RenderContext
 from app.core.renderer import validate_frame
+from app.core.fonts import text_width, wrap_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -529,11 +530,48 @@ class NewsBreakingTests(unittest.TestCase):
         self.assertEqual(NEWS._caption(self.rows(400)[0], 100), "CNBC 6M AGO")
 
     def test_a_breaking_story_looks_different_on_both_desks(self):
-        for style in ("breaking", "zipper"):
+        for style in ("headline", "breaking", "zipper"):
             for t in (0.5, 2.0):
                 with self.subTest(style=style, t=t):
                     self.assertNotEqual(self.frame(self.rows(10), style, t).tobytes(),
                                         self.frame(self.rows(3600), style, t).tobytes())
+
+    def test_a_headline_card_shows_whole_lines_and_is_read_in_seconds_not_half_a_minute(self):
+        title = self.rows(3600)[0]["title"]
+        lines = NEWS.headline_lines(title)
+        self.assertEqual(" ".join(lines), title)          # every word, none cut in half
+        self.assertTrue(all(text_width(line, 1, True) <= NEWS.LINE_WIDTH for line in lines))
+        self.assertLess(NEWS.card_seconds(title), 12)
+        crawl = NEWS.READ_PAUSE + NEWS.crawl_seconds(text_width(title, 2, True), 30)
+        self.assertLess(NEWS.card_seconds(title), crawl)
+        # The first two lines are up, whole and still, once the card has typed on.
+        frame = self.frame(self.rows(3600), "headline", NEWS.BUMPER_SECONDS + 1.5)
+        lit = [y for y in range(32) if any(frame.getpixel((x, y)) == NEWS.WHITE for x in range(128))]
+        self.assertGreaterEqual(min(lit), NEWS.CARD_TOP)
+        self.assertLessEqual(max(lit), 31)
+
+    def test_a_headline_card_rolls_up_a_line_at_a_time_and_ends_on_the_last(self):
+        title = "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen"
+        lines = NEWS.headline_lines(title)
+        self.assertGreater(len(lines), 2)
+        self.assertEqual(NEWS.card_scroll(title, 0), 0)
+        self.assertEqual(NEWS.card_scroll(title, NEWS.card_seconds(title)), (len(lines) - 2) * NEWS.LINE_PITCH)
+        positions = [NEWS.card_scroll(title, step / 30) for step in range(int(NEWS.card_seconds(title) * 30))]
+        self.assertEqual(positions, sorted(positions))    # never jumps back
+
+    def test_auto_is_mostly_headline_cards(self):
+        screen = NEWS.NewsModule()
+        rows = self.rows(3600)
+        registry = PluginRegistry(); registry.register(NEWS.plugin)
+        config = validate_config({"modules": {"news": {"enabled": True}},
+                                  "playlist": [{"id": "news", "module": "news"}]}, registry)
+        styles = []
+        for scene in range(6):
+            context = RenderContext(datetime.now(timezone.utc), 1, config,
+                                    {"news": Snapshot({"items": rows}, source="rss")}, Message(), SystemStatus(), scene)
+            styles.append(screen._story(context)[0][0])
+        self.assertEqual(styles.count("headline"), 4)
+        self.assertEqual(styles.count("zipper"), 2)
 
     def test_the_lamp_flashes(self):
         self.assertNotEqual(NEWS.flashing(0.1), NEWS.flashing(0.6))

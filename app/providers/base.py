@@ -37,3 +37,13 @@ def finite_number(value, low, high):
 
 def label(value, limit=32):
     return str(value or "---").strip().upper()[:limit] or "---"
+
+
+def retry_seconds(failures, every=5.0, longest=60.0):
+    """How long a provider that keeps failing is left before it is asked again.
+
+    Providers are asked every five seconds. One that is failing (a feed that is down,
+    a server answering "too many requests") is asked half as often each time it fails
+    again, up to once a minute, so it is not hammering a struggling server or holding
+    up the Pi, and it is back within a minute of the server coming back."""
+    return min(longest, every * 2 ** max(0, failures - 1))

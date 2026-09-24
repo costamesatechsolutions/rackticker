@@ -48,7 +48,8 @@ SCALE, FPS = 3, 10
 DEMO_MOMENT = (2026, 9, 22, 11, 20)
 # Pixel Town is three districts wide, so it stays long enough to visit each: the beach,
 # the high street, then the station (town x at the middle of the panel).
-TOUR = {"town": (21, ((0, 50), (7, 165), (14, 320)))}
+# The news desk stays long enough for a headline to roll up a line, which is the point of it.
+TOUR = {"town": (21, ((0, 50), (7, 165), (14, 320))), "news": (9, ())}
 
 
 def led_mask():
@@ -73,7 +74,11 @@ async def main():
     config = validate_config({
         "plugins": {"weather": {"latitude": 40.758, "longitude": -73.9855}, "arcade": {"mode": "quest"},
                     "ticker_wall": {"style": "taqueria"}, "tanks": {"iss": False},
-                    "town": {"real_data": False}},
+                    "town": {"real_data": False},
+                    # Live headlines, from the lighter desks: a README is no place for
+                    # whatever grim story happens to lead the top feed that minute.
+                    "news": {"channels": "TECH=https://feeds.bbci.co.uk/news/technology/rss.xml|"
+                                         "SPORTS=https://www.espn.com/espn/rss/news"}},
         "modules": {name: {"enabled": True} for name in SCREENS if name in ("clock",)},
         "display": {"transition": "slide_left", "brightness": 100},
         "playlist": [{"id": name, "module": name, "duration": TOUR.get(name, (seconds,))[0], "enabled": True,

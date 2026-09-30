@@ -443,7 +443,8 @@ class FreeSports(Provider):
     def __init__(self, context):
         self.context = context
         self.session = None
-        self.cached_games = []
+        self.cached_games = []     # what the panel shows: the newest update old enough to have aired
+        self.incoming = []         # (monotonic arrival, games) fetched but not yet due on the panel
         self.cache_until = 0.0
         self.logo_cache = {}
         self.previous = {}    # game id -> the game as last seen
@@ -457,6 +458,19 @@ class FreeSports(Provider):
                             "line": f"{who}  {score}" if who else score}
         if not self.context.emit_event("sportsbook", 12):
             self.context.emit_event("sports", 12)
+
+    def _release_due(self, favorites, tick, delay):
+        """Show an update only once it is `delay` seconds old. Live feeds run ahead of
+        what a TV, stream or radio delivers, so a goal on the panel first is a spoiler.
+        The first update shows at once; and scores, banners and celebrations all come
+        from the same held-back update, so they stay in step with each other."""
+        due = [i for i, (arrived, _) in enumerate(self.incoming)
+               if tick - arrived >= delay or (not self.cached_games and i == 0)]
+        if not due:
+            return
+        self.cached_games = self.incoming[due[-1]][1]
+        del self.incoming[:due[-1] + 1]
+        self._check_plays(favorites)
 
     def _check_plays(self, favorites):
         """Big plays in live games (fresh data only): every game's card shows its
@@ -585,9 +599,9 @@ class FreeSports(Provider):
                     timeout=aiohttp.ClientTimeout(total=1.7),
                     headers={"User-Agent": "RackTicker/0.1 (+https://github.com/costamesatechsolutions/rackticker)"},
                 )
-            self.cached_games = await self._fetch_all(leagues, favorites)
+            self.incoming.append((tick, await self._fetch_all(leagues, favorites)))
             self.cache_until = tick + settings["refresh_seconds"]
-            self._check_plays(favorites)
+        self._release_due(favorites, tick, settings["broadcast_delay_seconds"])
         now = datetime.now(timezone.utc)
         games = rotation(self.cached_games, favorites, now, settings["timezone"])
         if not games:
@@ -616,7 +630,8 @@ def validate(settings):
                                   for team in favorites):
         raise ValueError("favorite_teams must be comma-separated team abbreviations")
     for key, low, high in (("refresh_seconds", 15, 300),
-                           ("cycle_seconds", 6, 60)):
+                           ("cycle_seconds", 6, 60),
+                           ("broadcast_delay_seconds", 0, 180)):
         value = settings.get(key)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
             raise ValueError(f"{key} must be {low}–{high}")
@@ -637,8 +652,9 @@ plugin = Plugin(
     defaults={"leagues": "NHL,NFL,MLB,NBA",
               "favorite_teams": "ANA,LAK,SD", "refresh_seconds": 30,
               "cycle_seconds": 8, "timezone": "America/Los_Angeles",
-              "show_logos": True},
+              "show_logos": True, "broadcast_delay_seconds": 30},
     validate_settings=validate,
     help={"leagues": "Any of NFL, NCAAF, NBA, NCAAM, WNBA, MLB, NHL",
-          "favorite_teams": "Team abbreviations; their scores trigger celebrations"},
-    ui={"leagues": {"type": "multi", "options": ["NFL", "NCAAF", "NBA", "NCAAM", "WNBA", "MLB", "NHL"]}, "favorite_teams": {"type": "teams", "leagues": "leagues", "label": "Your teams"}, "cycle_seconds": {"type": "slider", "min": 3, "max": 30, "unit": "s", "label": "Seconds per game"}, "refresh_seconds": {"advanced": True}, "timezone": {"advanced": True, "label": "Time zone"}})
+          "favorite_teams": "Team abbreviations; their scores trigger celebrations",
+          "broadcast_delay_seconds": "Hold scores and alerts back this long so they land with the picture on your TV, not before it"},
+    ui={"leagues": {"type": "multi", "options": ["NFL", "NCAAF", "NBA", "NCAAM", "WNBA", "MLB", "NHL"]}, "favorite_teams": {"type": "teams", "leagues": "leagues", "label": "Your teams"}, "cycle_seconds": {"type": "slider", "min": 3, "max": 30, "unit": "s", "label": "Seconds per game"}, "broadcast_delay_seconds": {"type": "slider", "min": 0, "max": 120, "unit": "s", "label": "Alert delay (match your TV)"}, "refresh_seconds": {"advanced": True}, "timezone": {"advanced": True, "label": "Time zone"}})

@@ -115,8 +115,12 @@ class FreeSportsTests(unittest.TestCase):
     def test_settings_validation(self):
         valid = {"leagues": "NHL,NFL,MLB,NBA", "favorite_teams": "ANA,LAK,SD",
                 "refresh_seconds": 30, "cycle_seconds": 8,
-                 "timezone": "America/Los_Angeles", "show_logos": True}
+                 "timezone": "America/Los_Angeles", "show_logos": True,
+                 "broadcast_delay_seconds": 30}
         self.sports.validate(valid)
+        for delay in (-1, 181, True):
+            with self.assertRaises(ValueError):
+                self.sports.validate({**valid, "broadcast_delay_seconds": delay})
         for leagues in ("", "NHL,NHL", "CRICKET"):
             with self.assertRaises(ValueError):
                 self.sports.validate({**valid, "leagues": leagues})
@@ -134,8 +138,26 @@ class FreeSportsTests(unittest.TestCase):
             self.assertTrue(all(frame.getpixel((x, y)) == color for y in range(9, 25)))
 
 
-if __name__ == "__main__":
-    unittest.main()
+class BroadcastDelayTests(unittest.TestCase):
+    def test_updates_are_held_until_they_have_aired(self):
+        sports = load_plugin_module()
+        provider = sports.FreeSports(type("Ctx", (), {"emit_event": lambda *a: True})())
+        def update(score):
+            game = Game(Team("ANA", score, "#fc4c02"), Team("LAK", 0, "#a2aaad"), "live", "P2", "NHL")
+            return [{"id": "1", "game": game}]
+        shown = lambda: provider.cached_games[0]["game"].home.score
+        provider.incoming.append((0.0, update(0)))
+        provider._release_due({"ANA"}, 0.0, 30)
+        self.assertEqual(shown(), 0)          # first update is shown at once
+        provider.incoming.append((10.0, update(1)))
+        provider._release_due({"ANA"}, 10.0, 30)
+        self.assertEqual(shown(), 0)          # the goal has not aired yet
+        self.assertIsNone(provider.celebration)
+        provider._release_due({"ANA"}, 39.0, 30)
+        self.assertEqual(shown(), 0)
+        provider._release_due({"ANA"}, 40.0, 30)
+        self.assertEqual(shown(), 1)          # 30 s after it arrived
+        self.assertEqual(provider.celebration["call"], "GOAL")
 
 
 class LivePlayTests(unittest.TestCase):
@@ -215,3 +237,7 @@ class FootballTests(unittest.TestCase):
         field = self.sports.live_situation({"shortDownDistanceText": "3rd & 7", "yardLine": 82, "distance": 7,
                                             "homeTimeouts": 2, "possession": "1"}, {"1": "home"})
         self.assertEqual((field["yard"], field["togo"], field["home_timeouts"]), ("82", "7", "2"))
+
+
+if __name__ == "__main__":
+    unittest.main()

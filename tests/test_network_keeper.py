@@ -48,6 +48,47 @@ class KeeperDecisions(unittest.TestCase):
         self.assertTrue(KEEPER.usable("192.168.4.170"))
 
 
+class KeeperCost(unittest.TestCase):
+    """While the network is up, a tick does not ask NetworkManager anything."""
+
+    def setUp(self):
+        import tempfile
+        self.saved = {name: getattr(KEEPER, name) for name in
+                      ("addresses", "default_route", "nmcli", "STATE", "TIMEZONE_REQUEST")}
+        self.monotonic = KEEPER.time.monotonic
+        folder = Path(tempfile.mkdtemp())
+        KEEPER.STATE, KEEPER.TIMEZONE_REQUEST = folder / "network.json", folder / "timezone"
+        self.address = "192.168.4.170"
+        KEEPER.addresses = lambda: {"wlan0": [self.address]}
+        KEEPER.default_route = lambda: "default via 192.168.4.1 dev wlan0"
+        self.calls = []
+
+        def nmcli(*args, timeout=45):
+            self.calls.append(args)
+            if "--active" in args:
+                return 0, "802-11-wireless:home:wlan0\n", ""
+            return 0, "802-11-wireless:home\n", ""
+        KEEPER.nmcli = nmcli
+
+    def tearDown(self):
+        for name, value in self.saved.items():
+            setattr(KEEPER, name, value)
+        KEEPER.time.monotonic = self.monotonic
+
+    def test_online_ticks_reuse_the_network_name(self):
+        import json
+        keeper = KEEPER.Keeper()
+        keeper.settled = True
+        for second in range(0, 290, 10):
+            KEEPER.time.monotonic = lambda second=second: 1000.0 + second
+            keeper.tick()
+        self.assertEqual(len(self.calls), 1)          # once, not three times a tick
+        self.assertEqual(json.loads(KEEPER.STATE.read_text())["ssid"], "home")
+        self.address = "192.168.4.99"                 # a new address: ask again
+        keeper.tick()
+        self.assertEqual(len(self.calls), 2)
+
+
 class UnitTests(unittest.TestCase):
     def test_no_two_services_share_a_runtime_directory(self):
         """systemd re-owns a RuntimeDirectory when its unit starts: sharing one cost the

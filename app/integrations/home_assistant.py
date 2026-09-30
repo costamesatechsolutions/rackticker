@@ -12,11 +12,13 @@ import copy
 import json
 import logging
 import re
+import socket
 
 from app.integrations.mqtt import MQTTClient, MQTTError
 
 log = logging.getLogger("home_assistant")
 PLAYLIST = "Playlist"
+MAX_RETRY_SECONDS = 600
 
 
 def slug(text):
@@ -50,22 +52,30 @@ class HomeAssistant:
             await asyncio.gather(self.task, return_exceptions=True)
 
     async def _run(self, settings):
-        delay = 5
+        delay, last = 5, None
         while True:
             try:
                 await self._session(settings)
-                delay = 5
+                delay, last = 5, None
             except asyncio.CancelledError:
                 raise
             except (OSError, MQTTError, asyncio.TimeoutError) as exc:
-                self.status = {"state": "error", "error": str(exc) or type(exc).__name__}
-                log.warning("Home Assistant connection: %s", self.status["error"])
+                error = str(exc) or type(exc).__name__
+                if isinstance(exc, socket.gaierror):
+                    # "core-mosquito" is the broker's name inside Home Assistant only.
+                    error = f"cannot find {settings['host']!r}: use Home Assistant's IP address"
+                self.status = {"state": "error", "error": error}
+                # Said once, not every retry: a broker that is not there logged the
+                # same line 700 times a day to the Pi's SD card.
+                if error != last:
+                    log.warning("Home Assistant connection: %s", error)
+                last = error
             finally:
                 if self.client:
                     await self.client.close()
                     self.client = None
             await asyncio.sleep(delay)
-            delay = min(delay * 2, 120)
+            delay = min(delay * 2, MAX_RETRY_SECONDS)
 
     def _screens(self):
         """(module, label) for screens that can be shown right now."""

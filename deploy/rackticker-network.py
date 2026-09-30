@@ -41,6 +41,10 @@ DROP_GRACE = 300         # seconds offline before setup opens when a network is 
 RETRY_SAVED = 240        # seconds between tries of the saved network while in setup
 QUIET_AFTER_VISIT = 180  # do not drop the setup network while someone is using the page
 TICK = 10
+# While the network is up, a tick costs two quick `ip` calls. Asking NetworkManager
+# (each nmcli is ~0.1 s of CPU on a Pi 3A+, three a tick) for the network's name is
+# only done this often, or when the address changes: it was hours of CPU a week.
+NAME_SECONDS = 300
 # Forgot the control page's password and no SSH? Unplug RackTicker as soon as its
 # panel lights up, three times in a row: the next start clears the password.
 QUICK_BOOTS = Path("/var/lib/rackticker/quick-boots")
@@ -149,9 +153,13 @@ def active():
     return [tuple(fields(line)[:3]) for line in out.splitlines()] if code == 0 else None
 
 
-def online():
-    """(online, ssid, address). Conservative: any sign of a working network counts."""
+def online(known=None):
+    """(online, ssid, address). Conservative: any sign of a working network counts.
+    `known` is an earlier (ssid, address): while the route and address are unchanged,
+    its network name is used instead of asking NetworkManager again."""
     found = addresses()
+    if known and default_route() and any(known[1] in ips for ips in found.values()):
+        return True, known[0], known[1]
     connections = active()
     ssid = next((name for kind, name, _ in connections or [] if "wireless" in kind and name != HOTSPOT), "")
     address = next((ips[0] for ips in found.values() if ips), "")
@@ -198,6 +206,8 @@ class Keeper:
         self.portal = None
         self.notice = ""          # shown on the panel's start-up screen
         self.settled = False
+        self.known = None         # (ssid, address) last read from NetworkManager
+        self.known_at = 0.0
 
     # --- decisions ---------------------------------------------------------------
 
@@ -380,9 +390,10 @@ margin:6px 0}}button{{background:#e0561c;color:#fff;border:0;border-radius:6px}}
                 QUICK_BOOTS.write_text(f"0 {boot}")
             except OSError:
                 pass
-        is_online, ssid, address = online()
+        is_online, ssid, address = self.status(now)
         self.offline_since = None if is_online else (self.offline_since or now)
-        profiles = saved()
+        # What is saved only matters when there is no network, or setup is open.
+        profiles = saved() if self.setup or not is_online or not act else None
         action = self.decide(now, is_online, profiles)
         if not act:
             return action, is_online, ssid, address, profiles
@@ -394,8 +405,20 @@ margin:6px 0}}button{{background:#e0561c;color:#fff;border:0;border-radius:6px}}
             self.retry_saved(profiles or [])
         elif action == "connect":
             self.connect()
-        self.publish(*online())
+        if action != "stay":
+            self.known = None     # the network changed: look again
+            is_online, ssid, address = self.status(now)
+        self.publish(is_online, ssid, address)
         return action, is_online, ssid, address, profiles
+
+    def status(self, now):
+        fresh = self.known if self.known and now - self.known_at < NAME_SECONDS else None
+        result = online(fresh)
+        if result[0] and (result[1], result[2]) != fresh:
+            self.known, self.known_at = (result[1], result[2]), now
+        elif not result[0]:
+            self.known = None
+        return result
 
 
 def main():

@@ -206,6 +206,65 @@ class NewsFreshnessTests(unittest.TestCase):
         self.assertEqual([row["title"] for row in news.fresh(rows, 12, now)], ["newer", "new", "undated"])
 
 
+    def test_a_feed_that_says_est_in_summer_is_put_back_on_the_right_clock(self):
+        # ESPN stamps "EST" all year: in summer a story from 20 minutes ago reads as
+        # 40 minutes in the future, and used to show as BREAKING for the next hour.
+        news = load("news_clock_test", "plugins/news/rackticker_news.py")
+        xml = ("<rss><channel>"
+               "<item><title>Just in</title><pubDate>Wed, 30 Sep 2026 15:59:16 EST</pubDate></item>"
+               "<item><title>Earlier</title><pubDate>Wed, 30 Sep 2026 14:19:32 EST</pubDate></item>"
+               "</channel></rss>")
+        now = datetime(2026, 9, 30, 20, 19, 42, tzinfo=timezone.utc)
+        rows = news.settle_clock(news.entries(xml), now)
+        self.assertEqual([news.age_minutes(row["published"], now) for row in rows], [20, 120])
+        self.assertFalse(any(news.breaking(row, now) for row in rows))
+
+    def test_a_right_feed_is_left_alone_and_nonsense_times_are_not_believed(self):
+        from datetime import timedelta
+        news = load("news_clock_test", "plugins/news/rackticker_news.py")
+        now = datetime.now(timezone.utc)
+        right = [{"title": "a", "published": now - timedelta(minutes=3)},
+                 {"title": "b", "published": now + timedelta(seconds=30)}]
+        self.assertEqual(news.settle_clock(right, now), right)
+        wild = news.settle_clock([{"title": "c", "published": now + timedelta(days=3)},
+                                  {"title": "d", "published": now - timedelta(minutes=9)}], now)
+        self.assertEqual([row["published"] for row in wild], [None, now - timedelta(minutes=9)])
+        # A story from the future is never breaking, however it got here.
+        self.assertFalse(news.breaking({"published": now + timedelta(minutes=30)}, now))
+        self.assertEqual(news._age(now + timedelta(minutes=30), now=now), "")
+
+    def test_offline_the_desk_says_its_stories_are_cached(self):
+        import asyncio
+        news = load("news_offline_test", "plugins/news/rackticker_news.py")
+        context = type("Context", (), {"settings": {"channels": "TOP=https://a.test/rss|SPORTS=https://b.test/rss",
+                                                    "max_age_hours": 12, "refresh_seconds": 300}})()
+        provider = news.NewsProvider(context)
+        replies = {"https://a.test/rss": [{"title": "Top story", "channel": "TOP"}],
+                   "https://b.test/rss": [{"title": "Sports story", "channel": "SPORTS"}]}
+
+        async def channel(label, url):
+            if url not in replies:
+                raise ConnectionError("offline")
+            return replies[url]
+        provider._channel = channel
+        provider._warm_later = lambda rows: None
+
+        async def go():
+            first = await provider.fetch()
+            replies.pop("https://b.test/rss")            # one feed down: its stories stay
+            provider.cache_until = 0
+            second = await provider.fetch()
+            replies.clear()                              # the internet goes out
+            provider.cache_until = 0
+            with self.assertRaises(ConnectionError):
+                await provider.fetch()
+            await provider.close()
+            return first, second
+        first, second = asyncio.run(go())
+        self.assertEqual(len(first.data["items"]), 2)
+        self.assertEqual([row["title"] for row in second.data["items"]], ["Top story", "Sports story"])
+
+
 class PixelTownDistrictsTests(unittest.TestCase):
     """The beach and the station: a wider world than the panel, with real data
     behind it when the plugins that fetch it are installed."""

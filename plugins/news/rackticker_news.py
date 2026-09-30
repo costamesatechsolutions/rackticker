@@ -12,7 +12,7 @@ Every headline finishes before the playlist moves on. No keys.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from functools import lru_cache
 import html
@@ -54,6 +54,11 @@ ROLL_SECONDS = .3
 ZIPPER_BATCH = 4
 WARM_PAUSE = .12
 BREAKING_RED = (235, 30, 30)
+# How far ahead of our clock a story's time may be before it is a feed's mistake
+# rather than the two clocks disagreeing by a few seconds.
+CLOCK_SKEW = timedelta(minutes=2)
+# The furthest wrong a time zone label can be (a feed's "EST" in summer is an hour).
+MAX_ZONE_ERROR_HOURS = 14
 MAX_ROWS = 64
 OLD_DEFAULT = "https://feeds.bbci.co.uk/news/technology/rss.xml"
 DEFAULT_CHANNELS = "|".join((
@@ -198,6 +203,24 @@ def headlines(xml_text):
     return [entry["title"] for entry in entries(xml_text)]
 
 
+def settle_clock(rows, now=None):
+    """Put a feed's stories back on the right clock. ESPN stamps its stories "EST" all
+    year, so in summer every one of them is an hour in the future, and a story from the
+    future used to read as 0 minutes old: BREAKING for an hour after it broke. Stories
+    from the future show the feed's whole-hour error; every story in that feed is moved
+    back by it. A time further out than any time zone could explain is not believed."""
+    now = now or datetime.now(timezone.utc)
+    ahead = max((row["published"] - now for row in rows if row.get("published")), default=timedelta(0))
+    if ahead <= CLOCK_SKEW:
+        return rows
+    hours = math.ceil((ahead - CLOCK_SKEW) / timedelta(hours=1))
+    if hours > MAX_ZONE_ERROR_HOURS:
+        return [dict(row, published=None) if row.get("published") and row["published"] - now > CLOCK_SKEW
+                else row for row in rows]
+    shift = timedelta(hours=hours)
+    return [dict(row, published=row["published"] - shift) if row.get("published") else row for row in rows]
+
+
 def fresh(rows, hours, now=None):
     """Newest first, and nothing older than `hours`: some feeds keep day-old stories at
     the top. Undated stories are kept, after the dated ones."""
@@ -213,6 +236,7 @@ class NewsProvider(Provider):
         self.context = context
         self.session = None
         self.rows = []
+        self.channels = {}    # the last stories each feed gave, for when it next fails
         self.cache_until = 0.0
         self.warming = None
 
@@ -224,7 +248,7 @@ class NewsProvider(Provider):
             raise ValueError("News feed is too large")
         parsed = await offload(entries, body)
         return [dict(row, channel=label, outlet=outlet(url))
-                for row in fresh(parsed, self.context.settings["max_age_hours"])[:10]]
+                for row in fresh(settle_clock(parsed), self.context.settings["max_age_hours"])[:10]]
 
     async def fetch(self):
         settings = self.context.settings
@@ -236,18 +260,22 @@ class NewsProvider(Provider):
             channels = parse_channels(settings["channels"])
             results = await asyncio.gather(*(self._channel(label, url) for label, url in channels),
                                            return_exceptions=True)
-            groups = [result for result in results if isinstance(result, list)]
-            if groups:
-                # Round-robin across channels so the desk never dwells on one beat.
-                seen, rows = set(), []
-                for row in (row for group in zip_longest(*groups) for row in group if row):
-                    if row["title"] not in seen:
-                        seen.add(row["title"])
-                        rows.append(row)
-                self.rows = rows[:MAX_ROWS]
-                self._warm_later(self.rows)
-            elif not self.rows:
+            if not any(isinstance(result, list) for result in results):
+                # Offline, or every feed down: say so. Handing back the last stories as
+                # if just fetched kept them looking live, with no CACHED badge, for as
+                # long as the internet was out.
                 raise ConnectionError(str(next(iter(results), "No news feeds configured")))
+            # One feed failing keeps its last stories rather than dropping its channel.
+            self.channels = {url: result if isinstance(result, list) else self.channels.get(url, [])
+                             for (label, url), result in zip(channels, results)}
+            # Round-robin across channels so the desk never dwells on one beat.
+            seen, rows = set(), []
+            for row in (row for group in zip_longest(*self.channels.values()) for row in group if row):
+                if row["title"] not in seen:
+                    seen.add(row["title"])
+                    rows.append(row)
+            self.rows = rows[:MAX_ROWS]
+            self._warm_later(self.rows)
             self.cache_until = now + settings["refresh_seconds"]
         return Snapshot({"items": self.rows}, source="rss", metadata={"rotation_size": len(self.rows)})
 
@@ -272,9 +300,14 @@ class NewsProvider(Provider):
 
 
 def age_minutes(published, now=None):
+    """Whole minutes since the story was published; None when that is not known, which
+    includes a time still in the future: a story is never breaking for being misdated."""
     if not published:
         return None
-    return max(0, int(((now or datetime.now(timezone.utc)) - published).total_seconds() // 60))
+    age = (now or datetime.now(timezone.utc)) - published
+    if age < -CLOCK_SKEW:
+        return None
+    return max(0, int(age.total_seconds() // 60))
 
 
 def breaking(row, now=None):
@@ -283,9 +316,9 @@ def breaking(row, now=None):
 
 
 def _age(published, long=False, now=None):
-    if not published:
-        return ""
     minutes = age_minutes(published, now)
+    if minutes is None:
+        return ""
     if minutes == 0:
         return "BREAKING"
     if minutes < 60:

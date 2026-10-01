@@ -2,7 +2,7 @@
 
 import sys
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # The rest of the code is written in Python 3.10 (`int | None` in annotations, and
 # those are evaluated at class-definition time), so an older interpreter fails on

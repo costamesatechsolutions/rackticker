@@ -4,6 +4,12 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.6.0 - 2026-09-30
+
+- **Sports alerts wait for the TV.** Live feeds run ahead of broadcast, so a goal could
+  appear on the panel before it happened on screen. Scores, banners and celebrations are now
+  held back together by a broadcast delay: 30 seconds by default, set with "Alert delay
+  (match your TV)" in the sports settings.
 - **Headlines you can actually read.** The news desk crawled every headline past in 2×
   letters at 30 px/s: ten letters on the panel at a time, two and a half a second, half a
   minute a headline. The desk now shows the whole headline in 5×7 mixed case, two lines
@@ -23,6 +29,29 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
   download off the display's loop too.
 - Sportsbook: a team without a logo gets dark letters on a light team colour; Boston's gold
   had white letters that could not be read.
+- **News: BREAKING only when a story has just broken.** ESPN stamps its stories EST all
+  year, so in summer each one looked an hour in the future and stayed BREAKING for an hour.
+  With every feed down the desk now says so instead of passing off old stories as fresh.
+- **No provider timeouts every 17 minutes.** When the parsing helper retired, flights, sports
+  and news all timed out together until its replacement had started; the next helper is now
+  ready before it takes over.
+- **Lighter on the Pi.** The network keeper no longer runs three `nmcli` calls every ten
+  seconds, and a Home Assistant broker that cannot be found is reported once, with the fix
+  (use Home Assistant's IP address; `core-mosquito` only resolves inside Home Assistant).
+- **Nothing cut off mid-read.** A plane passing overhead waits for a crawling headline to
+  finish its lap, and installed plugins finish the card on show when their turn ends.
+- **Sportsbook**: team logos fill the panel height and stay readable; baseball's bases,
+  count and outs are spread across the card; a single run no longer takes over the panel.
+- **Flights** with no route on file show type, height, speed and distance on whole lines.
+- **Pixel Town / Rackville**: waves roll in from the horizon, people walk when they move,
+  keep their feet on the ground and no longer clip through the taco truck, and the camera
+  follows somebody.
+- Weather: fog is a cloud with mist under it. The news ticker fills the panel to its last row.
+- Restarting a plugin also stops the programs it started (an `ffmpeg` could outlive it).
+- Run with Python older than 3.10, RackTicker says so up front instead of failing deep in an
+  import; a laptop without an ADS-B receiver asks for a location instead of naming a file.
+- Plugin docs: installed screens are drawn ahead, so `render()` must depend only on its
+  context. `fx.dim` and `fx.plot` are cheaper.
 
 ## 1.5.0 - 2026-09-20
 

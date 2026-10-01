@@ -33,3 +33,6 @@ with a local web page for control. Python 3.11+, asyncio, aiohttp, Pillow. No bu
 ## Tests and deploy
 - `python -m unittest discover -s tests -t .`
 - `tools/deploy_pi.sh` deploys the committed HEAD to a Pi (`RACKTICKER_PI_HOST=user@host`).
+- Devices update from the newest **GitHub Release**, not from main. To ship: bump `__version__`
+  and `pyproject.toml`, move Unreleased in CHANGELOG.md under `## x.y.z - date`, commit, push,
+  then `tools/publish_release.sh`. A bump that is never published reaches nobody.

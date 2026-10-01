@@ -1,8 +1,8 @@
 {
   "id": "local_adsb",
-  "name": "ADS-B flights",
+  "name": "Planes overhead",
   "entry": "rackticker_local_adsb.py",
-  "description": "Read receiver JSON without taking ownership of its SDR or changing feeders.",
+  "description": "The planes flying over you: airline, flight, route and altitude. Works with no hardware from free community feeds around your home; add a USB ADS-B receiver, or point it at one on your network, for planes nobody else is sharing.",
   "author": "RackTicker",
   "version": "1.0.0"
 }

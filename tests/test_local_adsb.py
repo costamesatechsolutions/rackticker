@@ -249,6 +249,38 @@ class ADSBIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await provider.fetch()
             self.assertEqual(emit.call_count, 2)
 
+    async def test_receiver_on_another_computer_is_read_over_http(self):
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        state = {"receiver": True}
+        async def aircraft(request):
+            return web.json_response({"now": time.time(), "aircraft": [
+                {"hex": "abcdef", "flight": "NET1", "lat": .01, "lon": 0, "seen_pos": 0}]})
+        async def receiver(request):
+            return web.json_response({"lat": 0, "lon": 0}) if state["receiver"] else web.Response(status=404)
+        app = web.Application()
+        app.router.add_get("/data/aircraft.json", aircraft)
+        app.router.add_get("/data/receiver.json", receiver)
+        async with TestServer(app) as server:
+            settings = {**adsb.plugin.defaults, "receiver_url": str(server.make_url("/data/aircraft.json")),
+                        "aircraft_path": "/nonexistent/aircraft.json", "network_fallback": False}
+            adsb.validate(settings)
+            provider = adsb.LocalADSB(PluginContext("local_adsb", lambda: settings, Mock()))
+            try:
+                snapshot = await provider.fetch()
+                self.assertEqual((snapshot.source, snapshot.data.callsign), ("local_adsb", "NET1"))
+                # No receiver.json: the home location stands in for the receiver's.
+                state["receiver"] = False
+                settings.update(latitude=0.0, longitude=0.01)
+                self.assertEqual((await provider.fetch()).data.callsign, "NET1")
+            finally:
+                await provider.close()
+
+    def test_receiver_url_must_be_a_web_address(self):
+        for bad in ("piaware.local", "file:///etc/passwd", 5):
+            with self.assertRaises(ValueError):
+                adsb.validate({**adsb.plugin.defaults, "receiver_url": bad})
+
     async def test_display_radius_does_not_expand_interrupt_radius(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)

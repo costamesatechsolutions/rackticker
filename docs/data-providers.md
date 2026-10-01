@@ -6,11 +6,21 @@ small and lets installations add local or hosted data sources as plugins.
 
 ## Aircraft
 
-The bundled `local_adsb` plugin reads `aircraft.json` and `receiver.json` from
-a local dump1090-fa installation. It does not require a cloud account or send
-receiver data anywhere. The flight screen appears only when a tracked aircraft
-has useful data, so disconnecting the SDR does not leave a dead page in the
-playlist.
+The bundled `local_adsb` plugin, shown as **Planes overhead**, finds aircraft in
+this order:
+
+1. **A receiver on the network**, when `receiver_url` is set to its
+   `aircraft.json` address (PiAware: `http://piaware.local:8080/skyaware/data/aircraft.json`;
+   readsb, tar1090 and ultrafeeder serve `/data/aircraft.json` or
+   `/tar1090/data/aircraft.json`). The receiver's location comes from the
+   `receiver.json` beside it, or the home location if there is none.
+2. **A USB receiver on this Pi**, read from dump1090-fa's `aircraft.json` and
+   `receiver.json`. It does not take over the SDR or change any feeders.
+3. **Free community feeds** (adsb.lol, then adsb.fi) around the home location,
+   when neither of the above answers. No hardware and no account needed.
+
+The flight screen appears only when a tracked aircraft has useful data, so
+disconnecting the SDR does not leave a dead page in the playlist.
 
 ## Sports
 

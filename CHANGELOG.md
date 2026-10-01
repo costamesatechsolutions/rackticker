@@ -4,6 +4,12 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+- **"ADS-B flights" is now "Planes overhead"**, and says what it does: planes over you with no
+  hardware, from free community feeds around your home location.
+- **Use a receiver on another computer.** Paste its `aircraft.json` address (a PiAware, readsb,
+  tar1090 or ultrafeeder box) into "Receiver on your network". A USB stick on the Pi itself is
+  still found on its own, and the free feed still covers any gap.
+
 ## 1.7.0 - 2026-09-30
 
 - **A tidy Plugins page.** Everything on the device is one A–Z list by name, each tagged Built

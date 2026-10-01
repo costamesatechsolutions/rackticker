@@ -1,4 +1,7 @@
-"""Read receiver JSON without taking ownership of its SDR or changing feeders."""
+"""Planes overhead: from your own ADS-B receiver (a USB stick on this Pi or one
+elsewhere on the network), else from free community feeds around your home.
+
+Reads the receiver's JSON without taking ownership of its SDR or changing feeders."""
 import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -275,10 +278,23 @@ def route_airports(payload):
     return names if all(names) else None
 
 
-def read_json(path):
-    with Path(path).open("rb") as stream:
-        data = stream.read(2 * 1024 * 1024 + 1)
-    if len(data) > 2 * 1024 * 1024:
+MAX_JSON = 2 * 1024 * 1024
+
+
+def is_url(value):
+    return isinstance(value, str) and value.strip().lower().startswith(("http://", "https://"))
+
+
+def read_json(source):
+    """A receiver file's object, from a local path, or from bytes already downloaded."""
+    if isinstance(source, dict):
+        return source
+    if isinstance(source, (bytes, bytearray)):
+        data = bytes(source)
+    else:
+        with Path(source).open("rb") as stream:
+            data = stream.read(MAX_JSON + 1)
+    if len(data) > MAX_JSON:
         raise ValueError("Receiver JSON exceeds 2 MiB")
     value = json.loads(data)
     if not isinstance(value, dict):
@@ -290,7 +306,8 @@ def read_receiver(aircraft_path, receiver_path, settings, now):
     """The receiver's files, read and sorted into aircraft, for offload(): parsing
     them, and the aircraft database files a new arrival is looked up in, holds the
     GIL, so on a thread it froze the panel for half a second as a plane came into
-    range. In the helper process it costs the display nothing."""
+    range. In the helper process it costs the display nothing. Either source
+    can be a path, downloaded bytes, or (for the receiver) its location as a dict."""
     data, receiver = read_json(aircraft_path), read_json(receiver_path)
     candidates = []
     timestamp, winner, metadata = select_aircraft(data, receiver, settings, now, candidates)
@@ -720,13 +737,40 @@ class LocalADSB(Provider):
             return result
         raise ConnectionError("Local receiver unavailable and no ADS-B network feed answered")
 
+    async def _download_json(self, url):
+        """Raw bytes of a receiver file served over the network, capped like a local one."""
+        try:
+            async with self._session().get(url) as response:
+                response.raise_for_status()
+                return await response.content.read(MAX_JSON + 1)
+        except aiohttp.ClientError as exc:
+            raise ConnectionError(f"Receiver at {url} did not answer") from exc
+
+    async def _remote(self, settings):
+        """aircraft.json and receiver.json from a receiver on another computer, such
+        as a PiAware, readsb or tar1090 box. Without a receiver.json, home stands in."""
+        url = settings["receiver_url"].strip()
+        aircraft = await self._download_json(url)
+        try:
+            receiver = await self._download_json(url.rsplit("/", 1)[0] + "/receiver.json")
+            number(read_json(receiver).get("lat"), -90, 90)
+        except (OSError, ValueError):
+            if settings["latitude"] == 0 and settings["longitude"] == 0:
+                raise ConnectionError("Set your home location in Settings")
+            receiver = {"lat": settings["latitude"], "lon": settings["longitude"]}
+        return aircraft, receiver
+
     async def fetch(self):
         settings = self.context.settings
         source, feed = "local_adsb", None
         candidates = []
         try:
+            if settings["receiver_url"].strip():
+                aircraft, receiver = await self._remote(settings)
+            else:
+                aircraft, receiver = settings["aircraft_path"], settings["receiver_path"]
             receiver, timestamp, winner, metadata, candidates = await offload(
-                read_receiver, settings["aircraft_path"], settings["receiver_path"], dict(settings), time.time())
+                read_receiver, aircraft, receiver, dict(settings), time.time())
         except (OSError, ValueError) as exc:
             candidates.clear()
             data, receiver, feed = await self._network(settings, exc)
@@ -788,18 +832,26 @@ def validate(settings):
         raise ValueError("network_fallback must be boolean")
     number(settings["latitude"], -90, 90)
     number(settings["longitude"], -180, 180)
+    url = settings["receiver_url"]
+    if not isinstance(url, str) or (url.strip() and not is_url(url)) or len(url) > 500:
+        raise ValueError("receiver_url must be blank or an http:// address")
 
 
-plugin = Plugin("local_adsb", "ADS-B flights", provider=LocalADSB, provider_for="flight",
+plugin = Plugin("local_adsb", "Planes overhead", provider=LocalADSB, provider_for="flight",
                 defaults={"aircraft_path": "/run/dump1090-fa/aircraft.json",
                           "receiver_path": "/run/dump1090-fa/receiver.json",
                           "radius_miles": 35, "interrupt_radius_miles": 2.5, "max_age_seconds": 15,
                           "interrupts": True, "cooldown_seconds": 600,
                           "route_lookup": False, "route_cache_seconds": 21600,
                           # Location for the network fallback; 0,0 disables it.
-                          "network_fallback": True, "latitude": 0.0, "longitude": 0.0},
+                          "network_fallback": True, "latitude": 0.0, "longitude": 0.0,
+                          "receiver_url": ""},
                 validate_settings=validate,
-                help={"network_fallback": "Use free community ADS-B feeds while your antenna is offline",
-                      "latitude": "Fallback location; 0 and 0 disables the network feed",
+                help={"network_fallback": "Planes near your location from free community feeds, "
+                                          "whenever your own receiver is missing or quiet",
+                      "latitude": "Leave unset to use the home location from Settings",
+                      "receiver_url": "Optional. A USB ADS-B stick on this Pi is found by itself. For a receiver "
+                                      "on another computer, paste its aircraft.json address, e.g. "
+                                      "http://piaware.local:8080/skyaware/data/aircraft.json",
                       "interrupt_radius_miles": "Aircraft this close take over the display"},
-    ui={"aircraft_path": {"advanced": True}, "receiver_path": {"advanced": True}, "max_age_seconds": {"advanced": True}, "route_cache_seconds": {"advanced": True}, "cooldown_seconds": {"advanced": True, "label": "Seconds between take-overs"}, "latitude": {"type": "location", "label": "Location for the network feed"}, "longitude": {"advanced": True}, "radius_miles": {"type": "slider", "min": 1, "max": 50, "unit": "mi", "label": "Watch radius"}, "interrupt_radius_miles": {"type": "slider", "min": 0.5, "max": 10, "step": 0.5, "unit": "mi", "label": "Take over within"}, "route_lookup": {"label": "Look up routes and aircraft"}})
+    ui={"aircraft_path": {"advanced": True}, "receiver_path": {"advanced": True}, "max_age_seconds": {"advanced": True}, "route_cache_seconds": {"advanced": True}, "cooldown_seconds": {"advanced": True, "label": "Seconds between take-overs"}, "network_fallback": {"label": "Free planes feed"}, "latitude": {"type": "location", "label": "Location"}, "longitude": {"advanced": True}, "radius_miles": {"type": "slider", "min": 1, "max": 50, "unit": "mi", "label": "Watch radius"}, "interrupt_radius_miles": {"type": "slider", "min": 0.5, "max": 10, "step": 0.5, "unit": "mi", "label": "Take over within"}, "route_lookup": {"label": "Look up routes and aircraft"}, "receiver_url": {"label": "Receiver on your network"}})

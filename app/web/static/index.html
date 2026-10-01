@@ -92,24 +92,19 @@
 
     <!-- PLUGINS -->
     <section class="page" id="tab-plugins" role="tabpanel" hidden>
-      <div class="card">
-        <h2>Add a plugin</h2>
+      <div class="section-title">Your plugins <span class="spacer"></span><button class="btn small quiet" id="check-updates">Check for updates</button></div>
+      <div class="plugins" id="installed"></div>
+      <div class="card" id="community-card">
+        <h2>Get more</h2>
+        <div class="plugins" id="community"></div>
         <div class="fields">
           <form class="install" id="install-form">
             <input type="url" id="install-url" placeholder="https://github.com/someone/rackticker-plugin" aria-label="GitHub link" required>
             <button class="btn primary" type="submit" id="install-button">Install</button>
           </form>
-          <p class="hint">Paste a GitHub link to a plugin (or a folder in a repository). Plugins you add run in their own sandboxed process: if one misbehaves, only it restarts.</p>
+          <p class="hint">Or paste a GitHub link to any plugin (or a folder in a repository). Plugins you add run in their own sandboxed process: if one misbehaves, only it restarts.</p>
         </div>
       </div>
-      <div class="card" id="community-card">
-        <h2>Community plugins <span class="spacer"></span><button class="btn small quiet" id="check-updates">Check for updates</button></h2>
-        <div class="plugins" id="community"></div>
-      </div>
-      <div class="section-title">Installed</div>
-      <div class="plugins" id="installed"></div>
-      <div class="section-title">Built in</div>
-      <div class="plugins" id="builtin"></div>
       <div class="card">
         <h2>For plugin developers</h2>
         <div class="fields">

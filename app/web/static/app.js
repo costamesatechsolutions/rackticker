@@ -525,7 +525,9 @@ function pluginCard(item) {
   status.memory_mb != null ? `${status.memory_mb} MB` : null].filter(Boolean);
   return h('div', {class: 'plugin'},
     h('div', {class: 'plugin-head'},
-      h('div', {class: 'grow'}, h('b', {text: item.label || item.name}), item.description ? h('p', {text: item.description}) : null),
+      h('div', {class: 'grow'}, h('b', {text: item.label || item.name}),
+        h('span', {class: 'tag', text: item.kind === 'installed' ? (source.kind === 'upload' ? 'Uploaded' : 'Community') : 'Built in'}),
+        item.description ? h('p', {text: item.description}) : null),
       pluginStatus(item), h('span', {class: 'switch'}, onoff)),
     meta.length ? h('div', {class: 'meta'}, meta.map((text) => h('span', {text}))) : null,
     status.error ? h('div', {class: 'error-text', text: status.error}) : null,
@@ -540,26 +542,27 @@ function pluginCard(item) {
     open && plugin ? pluginFields(plugin) : null);
 }
 
+const byName = (a, b) => a.localeCompare(b, undefined, {sensitivity: 'base'});
+
 function renderPlugins() {
-  const items = pluginList.plugins || [];
-  const installed = items.filter((item) => item.kind === 'installed');
-  $('installed').replaceChildren(...(installed.length ? installed.map(pluginCard) :
-    [h('p', {class: 'hint', text: 'Nothing installed yet. Add one from a GitHub link or the community list.'})]));
-  $('builtin').replaceChildren(...items.filter((item) => item.kind !== 'installed').map(pluginCard));
+  // One A-Z list of everything on this device; where each came from is a tag, not a section.
+  const items = [...(pluginList.plugins || [])].sort((a, b) => byName(a.label || a.name || a.id, b.label || b.name || b.id));
+  $('installed').replaceChildren(...items.map(pluginCard));
   $('uploads').checked = !!config.plugin_uploads;
   $('dev-host').textContent = location.host;
 }
 
 function renderCommunity(list) {
+  // Only what is not here yet: installed ones are already in the list above.
   const have = new Set((pluginList.plugins || []).map((item) => item.id));
-  $('community-card').hidden = false;
-  $('community').replaceChildren(...(list.length ? list.map((entry) => h('div', {class: 'plugin'},
+  const more = list.filter((entry) => !have.has(entry.id)).sort((a, b) => byName(a.name || a.id, b.name || b.id));
+  $('community').replaceChildren(...(more.length ? more.map((entry) => h('div', {class: 'plugin'},
     h('div', {class: 'plugin-head'}, h('div', {class: 'grow'}, h('b', {text: entry.name || entry.id}),
       h('p', {text: entry.description || ''})),
-    have.has(entry.id) ? h('span', {class: 'pill ok', text: 'Installed'}) :
       h('button', {class: 'btn small primary', text: 'Install', onclick: () => install(entry.url)})),
     h('div', {class: 'meta'}, entry.author ? h('span', {text: entry.author}) : null))) :
-    [h('p', {class: 'hint', text: 'No community plugins listed yet. Yours could be the first: see docs/plugins.md.'})]));
+    [h('p', {class: 'hint', text: list.length ? 'You have every community plugin.' :
+      'No community plugins listed yet. Yours could be the first: see docs/plugins.md.'})]));
 }
 
 async function install(url) {

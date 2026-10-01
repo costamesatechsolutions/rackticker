@@ -121,11 +121,13 @@ async def software_update(request):
     if not updatable(request):
         raise ValueError("This RackTicker was not installed by the Pi installer, so it updates with git or "
                          "tools/deploy_pi.sh instead")
-    body = await request.json()
-    # Always ask GitHub again: a cached answer from minutes ago once installed an
-    # older release over a newer one.
+    # Install the newest release as GitHub says it is now, not the commit the page
+    # shows: that came from a cached answer that can be minutes old, and once named
+    # an older release than the one installed.
     newest = await latest(force=True)
-    commit = str((body or {}).get("commit") or newest["commit"]).lower()
+    commit = str(newest["commit"]).lower()
+    if not await is_newer(revision(), commit):
+        raise ValueError("This RackTicker already runs the newest release (or something newer)")
     if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
         raise ValueError("Expected a full commit id")
     folder = update_dir(request)

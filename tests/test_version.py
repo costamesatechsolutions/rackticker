@@ -30,6 +30,25 @@ class UpdateOfferTests(unittest.TestCase):
         self.assertTrue(asyncio.run(software_api.is_newer(b, a)))
         self.assertFalse(asyncio.run(software_api.is_newer(a, a)))
 
+    def test_update_installs_the_newest_release_not_the_commit_the_page_showed(self):
+        import asyncio, json, tempfile
+        from unittest import mock
+        from app.web import software_api
+        folder = Path(tempfile.mkdtemp())
+        newest, stale, installed = "c" * 40, "d" * 40, "e" * 40
+        request = mock.Mock()
+        request.json = mock.AsyncMock(return_value={"commit": stale})
+        with mock.patch.object(software_api, "updatable", return_value=True), \
+                mock.patch.object(software_api, "update_dir", return_value=folder), \
+                mock.patch.object(software_api, "revision", return_value=installed), \
+                mock.patch.object(software_api, "latest", mock.AsyncMock(return_value={"commit": newest})):
+            software_api._ahead[(installed, newest)] = True
+            asyncio.run(software_api.software_update(request))
+            self.assertEqual(json.loads((folder / "request.json").read_text())["commit"], newest)
+            software_api._ahead[(installed, newest)] = False
+            with self.assertRaises(ValueError):
+                asyncio.run(software_api.software_update(request))
+
 
 if __name__ == "__main__":
     unittest.main()

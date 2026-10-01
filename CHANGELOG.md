@@ -4,6 +4,16 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.7.0 - 2026-09-30
+
+- **A tidy Plugins page.** Everything on the device is one A–Z list by name, each tagged Built
+  in or Community, instead of separate piles sorted by internal id. "Get more" lists only the
+  community plugins you do not have yet (it used to repeat every installed one at the top of
+  the page), with the box for a GitHub link underneath.
+- **Update installs the newest release, whatever the page showed.** The button sent the
+  commit the page had cached, so a stale page asked for an older version and failed. The
+  device now checks GitHub at the moment you press it and installs only if that is newer.
+
 ## 1.6.1 - 2026-09-30
 
 - **The Software page no longer offers an older version as an update.** A RackTicker running

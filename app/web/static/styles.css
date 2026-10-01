@@ -194,3 +194,6 @@ details.advanced .fields { margin-top: 12px; }
 code { font: 12.5px var(--mono); background: var(--sunk); padding: 2px 5px; border-radius: 4px; }
 pre { font: 12.5px/1.5 var(--mono); background: var(--sunk); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0; }
 footer { color: var(--faint); font-size: 12.5px; text-align: center; margin-top: 30px; }
+.plugin-head .tag { margin-left: 8px; font: 10.5px var(--mono); text-transform: uppercase; color: var(--faint);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; vertical-align: 2px; }
+#community-card .plugins { margin-bottom: 14px; }

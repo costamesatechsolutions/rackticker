@@ -25,6 +25,7 @@ REPO = "costamesatechsolutions/rackticker"
 INSTALL = Path(__file__).resolve().parents[2]      # /opt/rackticker/current on a Pi
 LATEST_SECONDS = 600
 _latest = {"at": 0.0, "value": None}
+_ahead = {}   # (installed, latest) -> whether latest is newer; commits never move
 KEYS = {}   # runtime, store and config path keys, set by add_routes
 
 
@@ -69,6 +70,22 @@ async def latest(force=False):
     return value
 
 
+async def is_newer(installed, commit):
+    """True if `commit` comes after `installed` on GitHub. A Pi deployed straight from
+    main runs ahead of the newest release, and that release is not an update for it."""
+    if not installed or not commit or installed == commit:
+        return bool(commit) and installed != commit
+    if (installed, commit) not in _ahead:
+        headers = {"User-Agent": f"RackTicker/{__version__} (+https://github.com/{REPO})",
+                   "Accept": "application/vnd.github+json"}
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8), headers=headers) as session:
+            async with session.get(f"https://api.github.com/repos/{REPO}/compare/{installed}...{commit}") as response:
+                response.raise_for_status()
+                compare = await response.json(content_type=None)
+        _ahead[(installed, commit)] = compare.get("status") in ("ahead", "diverged")
+    return _ahead[(installed, commit)]
+
+
 def reset_choices(request):
     """The resets this install can actually carry out, for the page to offer."""
     folder = request.app[KEYS["path"]].resolve().parent / "reset"
@@ -94,8 +111,7 @@ async def software_get(request):
             "queued": (update_dir(request) / "request.json").exists()}
     try:
         body["latest"] = await latest()
-        body["update_available"] = bool(installed and body["latest"]["commit"]
-                                        and body["latest"]["commit"] != installed)
+        body["update_available"] = bool(installed) and await is_newer(installed, body["latest"]["commit"])
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
         body["error"] = f"Could not check GitHub: {exc}"
     return web.json_response(body)

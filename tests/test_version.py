@@ -18,5 +18,18 @@ class VersionTests(unittest.TestCase):
         self.assertIn(f"\n## {__version__} - ", (ROOT / "CHANGELOG.md").read_text())
 
 
+class UpdateOfferTests(unittest.TestCase):
+    """The page offers an update only when GitHub says it is newer than what is installed."""
+
+    def test_an_older_release_is_not_offered_to_a_pi_running_ahead_of_it(self):
+        import asyncio
+        from app.web import software_api
+        a, b = "a" * 40, "b" * 40
+        software_api._ahead.update({(a, b): False, (b, a): True})
+        self.assertFalse(asyncio.run(software_api.is_newer(a, b)))
+        self.assertTrue(asyncio.run(software_api.is_newer(b, a)))
+        self.assertFalse(asyncio.run(software_api.is_newer(a, a)))
+
+
 if __name__ == "__main__":
     unittest.main()

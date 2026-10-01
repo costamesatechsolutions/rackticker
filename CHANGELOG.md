@@ -4,6 +4,13 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.6.1 - 2026-09-30
+
+- **The Software page no longer offers an older version as an update.** A RackTicker running
+  ahead of the newest release (deployed straight from main) was told an update was available,
+  and installing it failed with "not newer than the one installed". The page now asks GitHub
+  whether the release really comes after the installed version.
+
 ## 1.6.0 - 2026-09-30
 
 - **Sports alerts wait for the TV.** Live feeds run ahead of broadcast, so a goal could

@@ -336,6 +336,22 @@ class RouteSanityTests(unittest.TestCase):
         self.assertIn("aircraft", over_orange_county["response"])
         self.assertIs(adsb.plausible(payload, 41.5, -80.0), payload)
 
+    def test_a_route_that_disagrees_with_what_the_plane_is_doing_is_dropped(self):
+        # Seen on the rack: a plane coming down over LA shown as landing in San Francisco.
+        lax_sfo = {"response": {"aircraft": {"icao_type": "A320"}, "flightroute": {
+            "origin": {"iata_code": "LAX", "latitude": 33.943, "longitude": -118.408},
+            "destination": {"iata_code": "SFO", "latitude": 37.62, "longitude": -122.375}}}}
+        self.assertIsNotNone(adsb.plausible(lax_sfo, 33.95, -118.2)["response"].get("flightroute"))
+        landing = adsb.agrees(lax_sfo, 33.95, -118.2, 265, "arriving", "LAX")
+        self.assertNotIn("flightroute", landing["response"])
+        self.assertIn("aircraft", landing["response"])
+        # Climbing out of LAX toward San Francisco, it is the right route.
+        self.assertIs(adsb.agrees(lax_sfo, 34.0, -118.5, 300, "departing", "LAX"), lax_sfo)
+        # Midway, flying the other way: not this flight.
+        self.assertNotIn("flightroute", adsb.agrees(lax_sfo, 35.8, -120.4, 135)["response"])
+        self.assertIs(adsb.agrees(lax_sfo, 35.8, -120.4, 315), lax_sfo)
+        self.assertIsNone(adsb.agrees(None, 33.9, -118.2, 90, "arriving", "LAX"))
+
     def test_local_end_names_the_home_airport(self):
         payload = {"response": {"flightroute": {
             "origin": {"latitude": 33.68, "longitude": -117.87},

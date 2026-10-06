@@ -1,5 +1,5 @@
 import unittest
-from app.core.scheduler import GONE_FINISH, GONE_GRACE, MIN_READ_SECONDS, Scheduler
+from app.core.scheduler import GONE_FINISH, GONE_GRACE, MIN_READ_SECONDS, STAY_LIMIT, Scheduler
 from app.core.playlist import PlaylistEntry
 from app.core.models import PriorityEvent
 
@@ -113,6 +113,29 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.resume(self.eligible)
         self.assertEqual(self.scheduler.current.module,"clock")
         self.assertFalse(self.scheduler.paused)
+
+    def test_forgotten_pause_or_preview_gives_the_playlist_back(self):
+        # 2026-10-05: a preview left on, then a pause, froze the rack all night on one plane.
+        self.scheduler.preview("message")
+        self.scheduler.paused = True
+        self.scheduler.tick(STAY_LIMIT - 1, self.eligible)
+        self.assertEqual(self.scheduler.current.kind, "preview")
+        self.scheduler.tick(2, self.eligible)
+        self.assertFalse(self.scheduler.paused)
+        self.assertEqual(self.scheduler.current.kind, "playlist")
+
+    def test_passing_plane_does_not_override_a_pause(self):
+        self.scheduler.paused = True
+        self.assertFalse(self.scheduler.interrupt(PriorityEvent("flight", 10, 20), defer=True))
+        self.assertEqual(self.scheduler.current.module, "clock")
+
+    def test_manual_alert_while_paused_still_runs_out(self):
+        self.scheduler.tick(3, self.eligible)
+        self.scheduler.paused = True
+        self.assertTrue(self.scheduler.interrupt(PriorityEvent("flight", 10, 20)))
+        self.scheduler.tick(10.5, self.eligible)
+        self.assertEqual(self.scheduler.current.module, "clock")
+        self.assertEqual(self.scheduler.current.elapsed, 3)     # still paused where it was
 
     def test_all_disabled_then_reenabled(self):
         self.scheduler.tick(GONE_GRACE,set())

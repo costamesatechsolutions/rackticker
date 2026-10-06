@@ -4,6 +4,18 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.8.0 - 2026-10-06
+
+- **A forgotten Pause or "Show this screen" no longer freezes the panel.** After 30 minutes
+  with nobody asking again, the playlist takes back over. A plane passing no longer takes over a
+  paused screen, and an alert that starts while paused still counts down and ends. (The rack sat
+  on one plane's card all night after a preview and a pause were left on.)
+- **No more "landing in San Francisco" over Los Angeles.** A route on file is now checked
+  against what the plane is doing: one low, descending and lined up on a nearby airport must be
+  landing there, one climbing out must have left from close by, and one between airports must be
+  heading toward its destination. If the route doesn't match, the card says where the plane is
+  landing or leaving from instead.
+- Error lines from community plugins now say which plugin they came from.
 - **"ADS-B flights" is now "Planes overhead"**, and says what it does: planes over you with no
   hardware, from free community feeds around your home location.
 - **Use a receiver on another computer.** Paste its `aircraft.json` address (a PiAware, readsb,

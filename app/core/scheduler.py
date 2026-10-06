@@ -25,6 +25,10 @@ GONE_GRACE = 4.0
 # ...and a screen that is midway through something (a plane's card, a headline) is let
 # finish it, up to this long, even once it has nothing new to show.
 GONE_FINISH = 15.0
+# Pause and "show this screen" are for someone standing at the panel. One left on by
+# accident (a test session, a page closed mid-preview) froze the rack for a whole night,
+# so after this long with nobody asking again the playlist takes back over.
+STAY_LIMIT = 30 * 60
 
 
 @dataclass
@@ -49,6 +53,7 @@ class Scheduler:
         self.revision = 0
         self.pending = None
         self._hold = None
+        self.staying = 0.0      # how long the playlist has been paused or held on one screen
 
     def _switch(self, cursor):
         self.current = cursor
@@ -81,7 +86,18 @@ class Scheduler:
                 c.gone += max(0, dt)
                 if c.gone >= GONE_GRACE and not (c.gone < GONE_FINISH and hold and hold(c)):
                     self.next(eligible)
-        if self.paused or self.current is None:
+        if self.paused or (self.current and self.current.kind == "preview"):
+            self.staying += max(0, dt)
+            if self.staying >= STAY_LIMIT:
+                log.info("paused or held for %d min; back to the playlist", STAY_LIMIT // 60)
+                self.resume(eligible)
+        else:
+            self.staying = 0.0
+        if self.current is None:
+            return
+        # A pause holds the playlist, never an alert: one that started while paused
+        # still runs out and gives the paused screen back.
+        if self.paused and self.current.kind != "interrupt":
             return
         if self.pending:
             event, waited = self.pending
@@ -91,7 +107,7 @@ class Scheduler:
         # Bound catch-up after a machine wakes; do not spin over hours of missed entries.
         for _ in range(64):
             c = self.current
-            if c is None:
+            if c is None or (self.paused and c.kind != "interrupt"):
                 return
             left = c.duration - c.elapsed
             if remaining_dt < left:
@@ -138,6 +154,8 @@ class Scheduler:
         c = self.current
         if c and c.kind == "interrupt" and event.priority <= c.priority:
             return False
+        if defer and self.paused:
+            return False        # someone paused on purpose; a passing plane doesn't override it
         if len(self.suspended) >= 8:
             return False
         if defer and c and c.kind == "playlist" and self._mid_read(c):
@@ -167,12 +185,14 @@ class Scheduler:
         self._switch(Cursor("event", event.module, event.duration, kind="interrupt", priority=event.priority))
 
     def preview(self, module):
+        self.staying = 0.0
         self.pending = None
         self.suspended.clear()
         self._switch(Cursor("preview", module, float("inf"), kind="preview"))
 
     def resume(self, eligible):
         self.paused = False
+        self.staying = 0.0
         if self.current and self.current.kind == "preview":
             # Return to the currently indexed playlist item, at the start of its dwell.
             self.index -= 1

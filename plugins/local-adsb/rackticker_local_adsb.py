@@ -428,6 +428,40 @@ def plausible(payload, latitude, longitude):
     return {"response": rest} if isinstance(route, dict) or response.get("alt_routes") else payload
 
 
+def _end(route, key):
+    end = route[key]
+    return number(end.get("latitude"), -90, 90), number(end.get("longitude"), -180, 180)
+
+
+def agrees(payload, latitude, longitude, track=None, phase="", airport=""):
+    """Keep a route only if it matches what the aircraft is doing right now.
+
+    plausible() asks only whether the aircraft is near the line between the two
+    airports, and over Los Angeles that is true of a Los Angeles to San Francisco
+    route on file for a plane that is landing at LAX. An aircraft low, coming down
+    and pointed at a nearby airport ends its flight there, so the route's
+    destination must be close by; one just climbing out started nearby. Far from
+    both ends, it must be heading roughly toward where the route says it is going."""
+    try:
+        response = payload["response"]
+        route = response["flightroute"]
+        origin, destination = _end(route, "origin"), _end(route, "destination")
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return payload
+    to_origin = distance_bearing(latitude, longitude, *origin)[0]
+    to_destination, bearing = distance_bearing(latitude, longitude, *destination)
+    if phase == "arriving":
+        wrong = to_destination > 50
+    elif phase == "departing":
+        wrong = to_origin > 50
+    else:
+        wrong = (track is not None and to_origin > 40 and to_destination > 60
+                 and angle_between(track, bearing) > 100)
+    if not wrong:
+        return payload
+    return {"response": {key: value for key, value in response.items() if key not in ("flightroute", "alt_routes")}}
+
+
 def journey(payload, latitude, longitude, speed_kts):
     """How far along its route an aircraft is, and rough minutes flown and to go.
 
@@ -633,13 +667,16 @@ class LocalADSB(Provider):
         winner = None
         for index, ((_, identity, flight, latitude, longitude), payload) in enumerate(zip(detailed, payloads)):
             payload = plausible(payload, latitude, longitude)
+            row = rows[index] if index < len(rows) else None
+            if row is not None and row["id"] == identity:
+                payload = agrees(payload, latitude, longitude, row.get("track"),
+                                 row.get("phase", ""), row.get("airport", ""))
             if payload is not None:
                 try:
                     flight = apply_route(flight, latitude, longitude, payload)
                     cities = route_cities(payload)
                 except (ValueError, TypeError, OverflowError):
                     cities = None
-                row = rows[index] if index < len(rows) else None
                 if row is not None and row["id"] == identity:
                     row.update(aircraft_row(flight, identity, row["track"], row["nearest"]))
                     if cities:

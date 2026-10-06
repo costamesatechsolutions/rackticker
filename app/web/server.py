@@ -137,6 +137,7 @@ async def control(request):
     elif action == "pause":
         runtime.auto_demo = False
         runtime.scheduler.paused = True
+        runtime.scheduler.staying = 0.0
     elif action == "resume":
         runtime.auto_demo = False
         runtime.scheduler.resume(runtime.eligible())

@@ -25,7 +25,7 @@ from app.core.plugins import PluginRegistry, BUILTINS
 from app.plugin_api import PluginContext
 from app.providers.base import Provider, retry_seconds
 from app.outputs.base import FrameSink
-from app.core import memory, offload
+from app.core import memory, offload, watchdog
 from app.core.fonts import centered
 from app.core.models import Snapshot, Message, PriorityEvent, SystemStatus, utcnow
 from app.core.playlist import from_config
@@ -774,6 +774,7 @@ class Runtime:
                 self.trimmed = now
                 memory.trim()
             self.cpu_mark, self.fault_mark = time.process_time(), self.page_faults()
+            watchdog.beat(now)
             await asyncio.sleep(max(0.0, deadline - time.monotonic()))
 
     async def start(self):

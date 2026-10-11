@@ -82,16 +82,34 @@ install -d -o rackticker -g rackticker -m 0700 /var/lib/rackticker/plugins /var/
 if [[ ! -f /var/lib/rackticker/config.json ]]; then
   install -o rackticker -g rackticker -m 0600 "$root/staging/config/config.pi.example.json" /var/lib/rackticker/config.json
 fi
-# Keep the system log small: a Pi running for years should not wear out its SD card.
-if [[ ! -f /etc/systemd/journald.conf.d/rackticker.conf ]]; then
-  install -D -m 0644 /dev/stdin /etc/systemd/journald.conf.d/rackticker.conf <<'JOURNAL'
-[Journal]
+# Keep the system log small (a Pi running for years should not wear out its SD card),
+# but on the card: Raspberry Pi OS keeps it in memory, so after a hang and a reboot
+# there was nothing left to say why.
+journal='[Journal]
+Storage=persistent
 SystemMaxUse=48M
 RuntimeMaxUse=16M
-MaxRetentionSec=2week
-JOURNAL
+MaxRetentionSec=2week'
+if [[ "$(cat /etc/systemd/journald.conf.d/rackticker.conf 2>/dev/null)" != "$journal" ]]; then
+  install -d /etc/systemd/journald.conf.d /var/log/journal
+  printf '%s\n' "$journal" > /etc/systemd/journald.conf.d/rackticker.conf
   systemctl restart systemd-journald || true
 fi
+# A Pi that locks up (kernel hang, memory thrash) used to sit on its last frame until
+# someone pulled the plug. systemd now pets the Pi's hardware watchdog, which resets the
+# board if it goes 15 s without; and a kernel panic reboots after 10 s instead of waiting.
+if [[ -e /dev/watchdog ]]; then
+  watchdog='[Manager]
+RuntimeWatchdogSec=15s
+RebootWatchdogSec=2min'
+  if [[ "$(cat /etc/systemd/system.conf.d/rackticker-watchdog.conf 2>/dev/null)" != "$watchdog" ]]; then
+    install -d /etc/systemd/system.conf.d
+    printf '%s\n' "$watchdog" > /etc/systemd/system.conf.d/rackticker-watchdog.conf
+    systemctl daemon-reexec || true
+  fi
+fi
+printf 'kernel.panic = 10\n' > /etc/sysctl.d/90-rackticker.conf
+sysctl -q -w kernel.panic=10 2>/dev/null || true
 # Panel tuning belongs to the owner: installed once, never overwritten.
 if [[ ! -f /etc/rackticker/matrix.conf ]]; then
   install -D -m 0644 "$root/staging/deploy/matrix.conf" /etc/rackticker/matrix.conf

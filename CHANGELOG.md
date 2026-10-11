@@ -4,6 +4,15 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.8.1 - 2026-10-11
+
+- **A locked-up Pi now restarts itself instead of freezing the panel.** The display checks in
+  with the system every few seconds; if it goes quiet for two minutes it is restarted. And the
+  Pi's hardware watchdog is now on: if the whole Pi hangs, the board resets itself within
+  seconds, where before it sat on its last frame until someone unplugged it. A kernel panic
+  reboots after 10 seconds.
+- **The system log now survives a reboot,** so the cause of a hang can be found afterwards.
+
 ## 1.8.0 - 2026-10-06
 
 - **A forgotten Pause or "Show this screen" no longer freezes the panel.** After 30 minutes

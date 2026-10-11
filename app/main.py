@@ -4,6 +4,8 @@ from pathlib import Path
 
 from aiohttp import web
 from app.core.config import ConfigError
+# First, so systemd's notify socket is taken before any helper process can inherit it.
+from app.core import watchdog  # noqa: F401
 from app.core import offload
 from app.core.plugin_manager import PluginManager
 from app.web.server import RUNTIME, create_app

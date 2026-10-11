@@ -16,6 +16,10 @@ WorkingDirectory=/opt/rackticker/current
 ExecStart=/opt/rackticker/venv/bin/python -m app --host 0.0.0.0 --port 8081 --config /var/lib/rackticker/config.json --output hub75
 Restart=on-failure
 RestartSec=5
+# The render loop checks in every few seconds (app/core/watchdog.py). Silent for two
+# minutes means it is stuck, not slow: restart it rather than leave the panel frozen.
+WatchdogSec=120
+NotifyAccess=main
 TimeoutStopSec=30
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1

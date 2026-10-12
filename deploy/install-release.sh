@@ -94,6 +94,18 @@ if [[ "$(cat /etc/systemd/journald.conf.d/rackticker.conf 2>/dev/null)" != "$jou
   install -d /etc/systemd/journald.conf.d /var/log/journal
   printf '%s\n' "$journal" > /etc/systemd/journald.conf.d/rackticker.conf
   systemctl restart systemd-journald || true
+  journalctl --flush 2>/dev/null || true   # a restart alone keeps writing to memory until the next boot
+fi
+# Wi-Fi power saving on the Pi's Broadcom chip lets it stop answering and never come
+# back: the rack fell off the network two to three minutes after every boot until it was
+# off. Written for NetworkManager's next connect; a working connection is never touched.
+if [[ -d /etc/NetworkManager ]]; then
+  wifi='[connection]
+wifi.powersave = 2'
+  if [[ "$(cat /etc/NetworkManager/conf.d/rackticker-wifi.conf 2>/dev/null)" != "$wifi" ]]; then
+    install -d /etc/NetworkManager/conf.d
+    printf '%s\n' "$wifi" > /etc/NetworkManager/conf.d/rackticker-wifi.conf
+  fi
 fi
 # A Pi that locks up (kernel hang, memory thrash) used to sit on its last frame until
 # someone pulled the plug. systemd now pets the Pi's hardware watchdog, which resets the

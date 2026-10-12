@@ -4,6 +4,14 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.8.2 - 2026-10-11
+
+- **RackTicker no longer falls off Wi-Fi a few minutes after starting.** The Pi's Wi-Fi power
+  saving let the chip stop answering and never recover: the panel kept scrolling saved
+  headlines marked CACHED, or sat on its last frame, until it was unplugged. It is now off.
+- The system log now really is kept across reboots (1.8.1 kept writing it to memory until the
+  next start).
+
 ## 1.8.1 - 2026-10-11
 
 - **A locked-up Pi now restarts itself instead of freezing the panel.** The display checks in

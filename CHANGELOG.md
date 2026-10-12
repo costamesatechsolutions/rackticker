@@ -4,6 +4,18 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+- **A simpler control page.** Three tabs instead of four, along the bottom on a phone so none
+  is hidden off the edge. Display is the live panel plus one list of every screen with an
+  on/off switch that saves by itself: no playlist to build. Tap a screen, or the settings
+  button under the panel for whatever is showing, for its settings. Order and seconds are
+  still there behind "Change order and timing", and are only minimums anyway: a screen
+  finishes what it is showing first.
+- **Plugin updates show up by themselves.** A number on the Plugins tab and an "Update all"
+  button, instead of opening each plugin. The device asks GitHub at most every half hour.
+- Plugins are a compact list, each with its own settings sheet; Settings keeps location,
+  brightness and software up front and folds the rest away. The page no longer scrolls
+  sideways on a phone.
+
 ## 1.8.2 - 2026-10-11
 
 - **RackTicker no longer falls off Wi-Fi a few minutes after starting.** The Pi's Wi-Fi power

@@ -28,6 +28,10 @@ COMMUNITY_URL = ("https://raw.githubusercontent.com/costamesatechsolutions/"
 COMMUNITY_LOCAL = Path(__file__).resolve().parents[2] / "community" / "index.json"
 MAX_UPLOAD = 28 * 1024 * 1024  # a 20 MB zip, base64 encoded
 _community = {"at": 0.0, "data": None}
+# The control page checks for plugin updates by itself, so answers are kept for a
+# while: GitHub allows 60 unauthenticated requests an hour, one per plugin.
+UPDATES_SECONDS = 1800
+_updates = {"at": 0.0, "data": None}
 
 
 def add_routes(app, runtime_key, store_key):
@@ -70,6 +74,8 @@ def add_routes(app, runtime_key, store_key):
                     raise ValueError("Only plugins installed from GitHub can update themselves")
                 await install(runtime, store, manager, lambda session: installer(runtime, manager).from_github(
                     source["url"], session))
+                if _updates["data"]:
+                    _updates["data"].pop(name, None)
             else:
                 raise ValueError("Unknown plugin action")
         return web.json_response(describe_all(runtime, manager))
@@ -108,8 +114,12 @@ def add_routes(app, runtime_key, store_key):
         return web.json_response({"installed": manifest.id, **describe_all(runtime, manager)})
 
     async def updates(request):
-        """For each GitHub-installed plugin: is a newer commit available?"""
+        """For each GitHub-installed plugin: is a newer commit available? ?fresh=1 asks GitHub again."""
         runtime, _, manager = parts(request)
+        cached = _updates["data"]
+        if (cached is not None and request.query.get("fresh") != "1"
+                and time.monotonic() - _updates["at"] < UPDATES_SECONDS):
+            return web.json_response({name: row for name, row in cached.items() if name in manager.installed})
         result = {}
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
             for name, manifest in manager.installed.items():
@@ -126,6 +136,7 @@ def add_routes(app, runtime_key, store_key):
                                     "update": latest != current}
                 except (aiohttp.ClientError, asyncio.TimeoutError, InstallError, KeyError) as exc:
                     result[name] = {"error": str(exc) or type(exc).__name__}
+        _updates.update(at=time.monotonic(), data=result)
         return web.json_response(result)
 
     async def community(request):

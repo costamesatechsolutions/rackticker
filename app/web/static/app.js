@@ -55,25 +55,34 @@ const clone = (value) => structuredClone(value);
 // --- state ---------------------------------------------------------------------
 
 let config, saved, state, catalog, pluginList = {plugins: []}, dirty = false;
-let names = {}, expanded = new Set();
+let names = {}, updates = {};
 
 function markDirty() {
   dirty = true;
-  $('savebar').hidden = false;
+  paintSaveState();
 }
 
 function clean() {
   dirty = false;
-  $('savebar').hidden = true;
+  paintSaveState();
+}
+
+// One place says whether there is something to save: the sheet's own buttons
+// while it is open, the bar along the bottom otherwise.
+function paintSaveState() {
+  $('savebar').hidden = !dirty || $('sheet').open;
+  if ($('sheet').open) paintSheetFoot();
 }
 
 async function save() {
   // Only settings are checked: the message and install boxes are separate forms.
-  for (const input of document.querySelectorAll('#tab-screens input, #tab-settings input, #tab-plugins .plugin input')) {
+  for (const input of document.querySelectorAll('#tab-settings input, #sheet input')) {
     if (!input.checkValidity()) {
-      showTab(input.closest('[role=tabpanel]').id.slice(4));
+      const panel = input.closest('[role=tabpanel]');
+      if (panel) showTab(panel.id.slice(4));
+      input.closest('details')?.setAttribute('open', '');
       input.reportValidity();
-      return;
+      return false;
     }
   }
   config = await api('config', 'PUT', config);
@@ -81,7 +90,13 @@ async function save() {
   clean();
   catalog = await api('catalog');
   renderAll();
-  toast('Saved');
+  return true;
+}
+
+function discard() {
+  config = clone(saved);
+  clean();
+  renderAll();
 }
 
 // --- live LED view -------------------------------------------------------------
@@ -172,7 +187,10 @@ function setLink(up) {
 
 // --- tabs ----------------------------------------------------------------------
 
+const TABS = ['display', 'plugins', 'settings'];
+
 function showTab(name) {
+  if (!TABS.includes(name)) name = 'display';
   for (const button of document.querySelectorAll('[data-tab]')) {
     const on = button.dataset.tab === name;
     button.setAttribute('aria-selected', on);
@@ -181,6 +199,7 @@ function showTab(name) {
   if (name === 'plugins') loadPlugins();
   if (name === 'settings') renderSoftware();
   history.replaceState(null, '', `#${name}`);
+  scrollTo(0, 0);
   draw();
 }
 
@@ -193,13 +212,13 @@ function onState(next) {
   const s = state.scheduler;
   $('now-name').textContent = names[s.module] || 'Nothing to show';
   $('now-kind').textContent = s.paused ? 'Paused' : s.kind === 'preview' ? 'Showing on request' :
-    s.kind === 'interrupt' ? 'Taking over' : 'Playlist';
+    s.kind === 'interrupt' ? 'Taking over' : 'Now showing';
+  $('now-settings').hidden = !s.module || s.module === 'test_pattern';
   $('now-progress').style.width = `${s.duration ? Math.min(100, s.elapsed / s.duration * 100) : 0}%`;
   $('pause').textContent = s.paused ? 'Play' : 'Pause';
   $('back-row').hidden = !(s.kind === 'preview' || s.paused);
-  $('back-note').textContent = s.paused ? 'The playlist is paused.' : `Staying on ${names[s.module] || 'this screen'}.`;
-  for (const tile of document.querySelectorAll('.tile')) tile.setAttribute('aria-pressed', tile.dataset.module === s.module);
-  for (const row of document.querySelectorAll('.screen')) row.classList.toggle('playing', row.dataset.id === s.entry_id);
+  $('back-note').textContent = s.paused ? 'Paused on this screen.' : `Staying on ${names[s.module] || 'this screen'}.`;
+  for (const row of document.querySelectorAll('#screens .item')) row.classList.toggle('playing', row.dataset.module === s.module);
   $('power').checked = state.power !== false;
   if (document.activeElement !== $('quick-brightness')) {
     $('quick-brightness').value = config.display.brightness;
@@ -208,18 +227,6 @@ function onState(next) {
   renderHaStatus();
   renderLog();
   if (brightnessChanged) draw();
-}
-
-function renderTiles() {
-  // Screens on sample data and the plain scoreboard the sportsbook replaces stay
-  // out of the way; they remain in Settings → Developer tools.
-  const hasBook = catalog.modules.some((item) => item.name === 'sportsbook' && item.available);
-  const screens = catalog.modules.filter((item) => item.available && !item.demo && config.modules[item.name]?.enabled
-    && !['test_pattern', 'message'].includes(item.name) && !(hasBook && item.name === 'sports'));
-  const inPlaylist = new Set(config.playlist.map((entry) => entry.module));
-  $('tiles').replaceChildren(...screens.sort((a, b) => inPlaylist.has(b.name) - inPlaylist.has(a.name)).map((item) =>
-    h('button', {class: 'tile', 'data-module': item.name, onclick: () => control('preview', {module: item.name})},
-      h('b', {text: item.label}), h('span', {text: inPlaylist.has(item.name) ? 'In playlist' : 'Not in playlist'}))));
 }
 
 async function control(action, extra = {}) {
@@ -440,49 +447,199 @@ const BUILTIN_FIELDS = {
 const DATA_FROM = {sportsbook: 'sports'};
 
 function screenSettings(module) {
-  const parts = [];
-  if (BUILTIN_FIELDS[module]) parts.push(h('div', {class: 'fields'}, BUILTIN_FIELDS[module](config.modules[module])));
+  // The screen's own settings first; a plugin that feeds it data (scores for the
+  // sportsbook) under its own heading after.
+  const own = [], fed = [];
+  if (BUILTIN_FIELDS[module]) own.push(h('div', {class: 'fields'}, BUILTIN_FIELDS[module](config.modules[module])));
   const feed = DATA_FROM[module] || module;
   for (const plugin of catalog.plugins) {
     if (plugin.name !== module && plugin.provider_for !== feed) continue;
     const fields = pluginFields(plugin);
-    if (fields) parts.push(h('h3', {text: plugin.name === module ? 'Settings' : `Data · ${plugin.label}`}), fields);
+    if (!fields) continue;
+    if (plugin.name === module) own.push(fields);
+    else fed.push(h('h3', {text: `${plugin.label} (data)`}), fields);
   }
-  return parts.length ? parts : [h('p', {class: 'hint', text: 'Nothing to set up for this screen.'})];
+  if (own.length && fed.length) own.unshift(h('h3', {text: 'Settings'}));
+  return own.length || fed.length ? [...own, ...fed] : [h('p', {class: 'hint', text: 'Nothing to set up. It just works.'})];
 }
 
-// --- screens -------------------------------------------------------------------
+// --- on your sign ------------------------------------------------------------------
+// The playlist, without having to build one: every screen is a switch. Order and
+// time on screen have good defaults and sit behind "Change order and timing".
+
+// How long a screen stays up at least when it is switched on. It stays longer
+// while it is mid-story, so these are floors, not cut-offs.
+const DEFAULT_SECONDS = {clock: 8, weather: 10, finance: 20, sportsbook: 24, news: 30, tixclock: 15, flight: 12,
+  town: 20, sports: 10, message: 10, system_status: 6};
+const ABOUT = {clock: 'The time and date', tixclock: 'The time in coloured squares', flight: 'Planes flying overhead',
+  sports: 'Live scores for your teams', message: 'A message you write', system_status: 'How the rack is doing'};
+
+const icon = (path) => {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  node.setAttribute('viewBox', '0 0 24 24');
+  node.setAttribute('aria-hidden', 'true');
+  node.innerHTML = path;
+  return node;
+};
+const CHEVRON = '<path d="M9 5l7 7-7 7"/>';
+
+function about(module) {
+  const plugin = (pluginList.plugins || []).find((item) => item.id === module);
+  const text = plugin?.description || ABOUT[module] || '';
+  // "Pixel Town: a tiny living city" reads as "A tiny living city" under its own name.
+  const label = names[module] || '';
+  return label && text.toLowerCase().startsWith(`${label.toLowerCase()}: `) ?
+    text.slice(label.length + 2).replace(/^./, (c) => c.toUpperCase()) : text;
+}
+
+const entriesFor = (module) => config.playlist.filter((entry) => entry.module === module);
+const isOn = (module) => entriesFor(module).some((entry) => entry.enabled);
+
+function signScreens() {
+  const hasBook = catalog.modules.some((item) => item.name === 'sportsbook' && item.available);
+  const order = [...new Set(config.playlist.map((entry) => entry.module))];
+  const offered = catalog.modules.filter((item) => item.available && !item.demo && item.name !== 'test_pattern'
+    && config.modules[item.name]?.enabled !== false
+    // The message screen and the plain scoreboard the sportsbook replaces only
+    // show up here if they are already in use.
+    && (order.includes(item.name) || !['message', ...(hasBook ? ['sports'] : [])].includes(item.name)));
+  const rank = (item) => order.includes(item.name) ? order.indexOf(item.name) : 1000;
+  return offered.sort((a, b) => rank(a) - rank(b) || byName(a.label, b.label));
+}
+
+function setScreen(module, on) {
+  const entries = entriesFor(module);
+  if (on && !entries.length) {
+    if (config.playlist.length >= 32) throw new Error('Up to 32 screens can be on at once');
+    config.playlist.push({id: `${module}-${Date.now().toString(36)}`, module, duration: DEFAULT_SECONDS[module] || 12,
+      enabled: true, mode: 'normal'});
+  }
+  for (const entry of entries) entry.enabled = on;
+  if (!config.playlist.some((entry) => entry.enabled)) throw new Error('Keep at least one screen on');
+}
 
 function renderScreens() {
-  const list = config.playlist;
-  $('screens-count').textContent = `${list.filter((entry) => entry.enabled).length} of ${list.length} on`;
-  $('screens').replaceChildren(...list.map((entry, index) => {
-    const open = expanded.has(entry.id);
-    const move = (delta) => { [list[index], list[index + delta]] = [list[index + delta], list[index]]; markDirty(); renderScreens(); };
-    const available = catalog.modules.find((item) => item.name === entry.module)?.available;
-    const enabled = h('input', {type: 'checkbox', checked: entry.enabled, 'aria-label': `${names[entry.module]} on`,
-      onchange: () => { entry.enabled = enabled.checked; markDirty(); renderScreens(); }});
-    const seconds = h('input', {type: 'number', min: 1, max: 3600, value: entry.duration, 'aria-label': 'Seconds',
-      oninput: () => { entry.duration = Number(seconds.value); markDirty(); }});
-    return h('div', {class: `screen${entry.enabled ? '' : ' off'}`, 'data-id': entry.id},
-      h('div', {class: 'screen-head'},
-        h('div', {class: 'order'}, h('button', {type: 'button', text: '▲', disabled: index === 0, 'aria-label': 'Move up', onclick: () => move(-1)}),
-          h('button', {type: 'button', text: '▼', disabled: index === list.length - 1, 'aria-label': 'Move down', onclick: () => move(1)})),
-        h('span', {class: 'switch'}, enabled),
-        h('div', {class: 'screen-name'}, h('b', {text: names[entry.module] || entry.module}),
-          h('span', {text: available === false ? 'Not available (plugin off or missing)' : ''})),
-        h('label', {class: 'seconds'}, seconds, 's'),
-        h('button', {type: 'button', class: 'expand', 'aria-expanded': open, text: open ? 'Close' : 'Settings',
-          onclick: () => { open ? expanded.delete(entry.id) : expanded.add(entry.id); renderScreens(); }})),
-      open ? h('div', {class: 'screen-body'}, screenSettings(entry.module),
-        h('div', {class: 'row'}, h('span', {class: 'grow'}),
-          h('button', {type: 'button', class: 'btn small', text: 'Show it now', onclick: () => control('preview', {module: entry.module})}),
-          h('button', {type: 'button', class: 'btn small danger', text: 'Remove from playlist', disabled: list.length === 1,
-            onclick: () => { list.splice(index, 1); markDirty(); renderScreens(); }}))) : null);
+  const screens = signScreens();
+  $('screens-count').textContent = `${screens.filter((item) => isOn(item.name)).length} of ${screens.length} on`;
+  $('screens').replaceChildren(...screens.map((item) => {
+    const on = isOn(item.name);
+    const toggle = h('input', {type: 'checkbox', checked: on, 'aria-label': `Show ${item.label}`,
+      onchange: async () => {
+        // A switch is the whole decision: it saves straight away.
+        try { setScreen(item.name, toggle.checked); await save(); toast(toggle.checked ? `${item.label} is on` : `${item.label} is off`); }
+        catch (error) { config = clone(saved); renderScreens(); throw error; }
+      }});
+    return h('div', {class: `item${on ? '' : ' off'}`, 'data-module': item.name},
+      h('button', {type: 'button', class: 'open', onclick: () => openSheet({type: 'screen', module: item.name})},
+        h('span', {class: 'text'}, h('span', {class: 'name'}, item.label, h('span', {class: 'live-tag', text: 'Live'})),
+          h('span', {class: 'desc', text: about(item.name)})),
+        icon(CHEVRON)),
+      h('span', {class: 'switch'}, toggle));
   }));
-  const choices = catalog.modules.filter((item) => item.available && !item.demo && item.name !== 'test_pattern');
-  $('add-screen').replaceChildren(...choices.map((item) => h('option', {value: item.name, text: item.label})));
+  for (const svg of $('screens').querySelectorAll('.open svg')) svg.classList.add('chev');
   if (state) onState(state);
+}
+
+// --- the sheet: settings for one thing, wherever you tapped it -------------------
+
+let sheetView = null;
+
+function openSheet(view) {
+  sheetView = view;
+  renderSheet();
+  if (!$('sheet').open) $('sheet').showModal();
+  $('sheet-body').scrollTop = 0;
+  paintSaveState();
+}
+
+function closeSheet() {
+  if ($('sheet').open) $('sheet').close();
+}
+
+const SHEETS = {screen: screenSheet, plugin: pluginSheet, order: orderSheet};
+
+function renderSheet() {
+  if (!sheetView) return;
+  const view = SHEETS[sheetView.type](sheetView);
+  if (!view) { closeSheet(); return; }
+  $('sheet-title').textContent = view.title;
+  $('sheet-sub').textContent = view.sub || '';
+  $('sheet-body').replaceChildren(...view.body.flat(Infinity).filter(Boolean));
+  sheetView.extra = view.extra || [];
+  paintSheetFoot();
+}
+
+function paintSheetFoot() {
+  const extra = sheetView?.extra || [];
+  $('sheet-foot').replaceChildren(...extra, h('span', {class: 'grow'}),
+    ...(dirty ? [h('button', {type: 'button', class: 'btn', text: 'Cancel', onclick: () => { discard(); closeSheet(); }}),
+      h('button', {type: 'button', class: 'btn primary', text: 'Save', onclick: async () => {
+        if (await save()) { closeSheet(); toast('Saved'); }
+      }})] : [h('button', {type: 'button', class: 'btn', text: 'Done', onclick: closeSheet})]));
+}
+
+function screenSheet({module}) {
+  const label = names[module] || module;
+  const entries = entriesFor(module);
+  const on = isOn(module);
+  const toggle = h('input', {type: 'checkbox', checked: on, 'aria-label': `Show ${label}`,
+    onchange: () => { try { setScreen(module, toggle.checked); } catch (error) { toggle.checked = !toggle.checked; throw error; }
+      markDirty(); renderSheet(); }});
+  const timing = entries.map((entry, index) => field(entries.length > 1 ? `Time on screen (${index + 1} of ${entries.length})` : 'Time on screen',
+    h('div', {class: 'row'}, h('input', {type: 'number', min: 1, max: 3600, value: entry.duration, required: true, 'aria-label': 'Seconds',
+      oninput: (event) => { entry.duration = Number(event.target.value); markDirty(); }}), h('span', {class: 'hint', text: 'seconds at least'}))));
+  return {
+    title: label,
+    sub: state?.scheduler.module === module ? 'On the panel now' : on ? 'On your sign' : 'Off',
+    body: [
+      about(module) ? h('p', {class: 'about', text: about(module)}) : null,
+      h('div', {class: 'line-field'}, h('span', {class: 'label', text: 'Show on my sign'}), h('span', {class: 'switch'}, toggle)),
+      screenSettings(module),
+      timing.length ? h('details', {class: 'advanced'}, h('summary', {text: 'Timing'}),
+        h('div', {class: 'fields'}, timing,
+          h('span', {class: 'hint', text: 'A screen that is mid-story (a crawl, a game update) finishes first, so this is a minimum.'}))) : null,
+    ],
+    extra: [h('button', {type: 'button', class: 'btn', onclick: () => control('preview', {module})}, icon('<path d="M7 5l12 7-12 7z"/>'), 'Show now')],
+  };
+}
+
+function orderSheet() {
+  const list = config.playlist;
+  const count = (module) => list.filter((entry) => entry.module === module).length;
+  const rows = list.map((entry, index) => {
+    const move = (delta) => { [list[index], list[index + delta]] = [list[index + delta], list[index]]; markDirty(); renderSheet(); };
+    return h('div', {class: `order-row${entry.enabled ? '' : ' off'}`},
+      h('div', {class: 'arrows'},
+        h('button', {type: 'button', class: 'btn quiet icon-btn small', 'aria-label': 'Move up', disabled: index === 0, onclick: () => move(-1)},
+          icon('<path d="M6 15l6-6 6 6"/>')),
+        h('button', {type: 'button', class: 'btn quiet icon-btn small', 'aria-label': 'Move down', disabled: index === list.length - 1,
+          onclick: () => move(1)}, icon('<path d="M6 9l6 6 6-6"/>'))),
+      h('span', {class: 'name', text: names[entry.module] || entry.module}),
+      h('input', {type: 'number', min: 1, max: 3600, value: entry.duration, required: true, 'aria-label': 'Seconds',
+        oninput: (event) => { entry.duration = Number(event.target.value); markDirty(); }}),
+      h('span', {class: 'hint', text: 's'}),
+      count(entry.module) > 1 ? h('button', {type: 'button', class: 'btn quiet icon-btn small', 'aria-label': 'Remove this repeat',
+        title: 'Remove this repeat', onclick: () => { list.splice(index, 1); markDirty(); renderSheet(); }},
+      icon('<path d="M6 6l12 12M18 6L6 18"/>')) : h('span', {class: 'icon-btn small'}));
+  });
+  const choices = signScreens();
+  const pick = h('select', {'aria-label': 'Screen to repeat', class: 'grow'},
+    choices.map((item) => h('option', {value: item.name, text: item.label})));
+  return {
+    title: 'Order and timing',
+    sub: 'Optional. The defaults work fine.',
+    body: [
+      h('p', {class: 'hint', text: 'Screens play top to bottom, each for at least the seconds shown (longer if it is mid-story). Switched-off screens are crossed out and skipped.'}),
+      h('div', {class: 'list'}, rows),
+      h('div', {class: 'row'}, pick, h('button', {type: 'button', class: 'btn small', text: 'Play it twice', onclick: () => {
+        if (list.length >= 32) throw new Error('Up to 32 screens');
+        list.push({id: `${pick.value}-${Date.now().toString(36)}`, module: pick.value, duration: DEFAULT_SECONDS[pick.value] || 12,
+          enabled: true, mode: 'normal'});
+        markDirty(); renderSheet();
+      }})),
+      h('span', {class: 'hint', text: 'A screen can appear more than once, the way the clock comes back between the others.'}),
+    ],
+  };
 }
 
 // --- plugins -------------------------------------------------------------------
@@ -490,84 +647,150 @@ function renderScreens() {
 async function loadPlugins() {
   pluginList = await api('plugins');
   renderPlugins();
+  checkUpdates().catch(() => {});
   const community = await api('plugins/community').catch(() => ({plugins: []}));
   renderCommunity(community.plugins || []);
 }
 
-function pluginStatus(item) {
-  const status = item.status || {};
-  if (!item.enabled) return h('span', {class: 'pill', text: 'Off'});
-  if (status.state === 'failed') return h('span', {class: 'pill bad', text: 'Failed'});
-  if (status.state === 'restarting') return h('span', {class: 'pill warn', text: 'Restarting'});
-  if (status.state === 'missing') return h('span', {class: 'pill bad', text: 'Missing'});
-  return h('span', {class: 'pill ok', text: status.sandboxed ? 'Running · sandboxed' : 'On'});
+// Asked when the page opens and on the Plugins tab. The device keeps GitHub's
+// answer for half an hour; "Check for updates" asks again.
+async function checkUpdates(fresh = false) {
+  const result = await api(`plugins/updates${fresh ? '?fresh=1' : ''}`, 'GET', undefined, 40);
+  updates = Object.fromEntries(Object.entries(result).filter(([, row]) => row.update).map(([name]) => [name, true]));
+  renderUpdates();
+  return Object.keys(updates).length;
+}
+
+function renderUpdates() {
+  const waiting = Object.keys(updates);
+  const label = (id) => (pluginList.plugins || []).find((item) => item.id === id)?.label || id;
+  $('plugins-badge').hidden = !waiting.length;
+  $('plugins-badge').textContent = waiting.length;
+  $('updates-banner').hidden = !waiting.length;
+  $('updates-title').textContent = waiting.length === 1 ? 'An update is ready' : `${waiting.length} updates are ready`;
+  $('updates-names').textContent = waiting.map(label).join(', ');
+  if (!$('tab-plugins').hidden) renderPlugins();
+}
+
+async function updateAll() {
+  if (dirty) throw new Error('Save or discard your changes first');
+  const waiting = Object.keys(updates);
+  $('update-all').disabled = true;
+  let done = 0;
+  try {
+    for (const id of waiting) {
+      toast(`Updating ${done + 1} of ${waiting.length}…`);
+      pluginList = await api('plugins', 'POST', {id, action: 'update'}, 120);
+      delete updates[id];
+      done += 1;
+    }
+  } finally {
+    $('update-all').disabled = false;
+    [config, catalog] = await Promise.all([api('config'), api('catalog')]);
+    saved = clone(config);
+    renderAll();
+    renderUpdates();
+  }
+  toast(done === 1 ? 'Updated' : `Updated ${done} plugins`);
 }
 
 async function pluginAction(id, action) {
   if (dirty) throw new Error('Save or discard your changes first');
   if (action === 'remove' && !confirm('Remove this plugin and its settings?')) return;
-  pluginList = await api('plugins', 'POST', {id, action}, 90);
+  if (action === 'update') toast('Updating…');
+  pluginList = await api('plugins', 'POST', {id, action}, 120);
+  if (action === 'update' || action === 'remove') delete updates[id];
   [config, catalog] = await Promise.all([api('config'), api('catalog')]);
   saved = clone(config);
   renderAll();
+  renderUpdates();
+  if (action === 'remove') closeSheet();
   toast({enable: 'Switched on', disable: 'Switched off', remove: 'Removed', update: 'Updated', restart: 'Restarted'}[action]);
 }
 
-function pluginCard(item) {
+function pluginProblem(item) {
   const status = item.status || {};
-  const plugin = catalog.plugins.find((entry) => entry.name === item.id);
-  const source = item.source || {};
-  const open = expanded.has(`plugin:${item.id}`);
-  const onoff = h('input', {type: 'checkbox', checked: item.enabled, 'aria-label': `${item.label} on`,
-    onchange: () => pluginAction(item.id, onoff.checked ? 'enable' : 'disable').catch((error) => { onoff.checked = !onoff.checked; throw error; })});
-  const meta = [item.version && `v${item.version}`, item.author, source.kind === 'github' ? `${source.owner}/${source.repo}@${(source.commit || '').slice(0, 7)}` :
-    source.kind === 'upload' ? 'uploaded' : null, status.render_ms != null ? `${status.render_ms} ms/frame` : null,
-  status.memory_mb != null ? `${status.memory_mb} MB` : null].filter(Boolean);
-  return h('div', {class: 'plugin'},
-    h('div', {class: 'plugin-head'},
-      h('div', {class: 'grow'}, h('b', {text: item.label || item.name}),
-        h('span', {class: 'tag', text: item.kind === 'installed' ? (source.kind === 'upload' ? 'Uploaded' : 'Community') : 'Built in'}),
-        item.description ? h('p', {text: item.description}) : null),
-      pluginStatus(item), h('span', {class: 'switch'}, onoff)),
-    meta.length ? h('div', {class: 'meta'}, meta.map((text) => h('span', {text}))) : null,
-    status.error ? h('div', {class: 'error-text', text: status.error}) : null,
-    h('div', {class: 'row'},
-      plugin && Object.keys(plugin.defaults).length ? h('button', {class: 'btn small', text: open ? 'Hide settings' : 'Settings',
-        onclick: () => { open ? expanded.delete(`plugin:${item.id}`) : expanded.add(`plugin:${item.id}`); renderPlugins(); }}) : null,
-      item.homepage ? h('a', {class: 'btn small quiet', href: item.homepage, target: '_blank', rel: 'noopener', text: 'Homepage'}) : null,
-      h('span', {class: 'grow'}),
-      source.kind === 'github' ? h('button', {class: 'btn small', text: 'Update', onclick: () => pluginAction(item.id, 'update')}) : null,
-      status.sandboxed && item.enabled ? h('button', {class: 'btn small', text: 'Restart', onclick: () => pluginAction(item.id, 'restart')}) : null,
-      item.kind === 'installed' ? h('button', {class: 'btn small danger', text: 'Remove', onclick: () => pluginAction(item.id, 'remove')}) : null),
-    open && plugin ? pluginFields(plugin) : null);
+  if (!item.enabled) return null;
+  if (status.state === 'failed') return h('span', {class: 'pill bad', text: 'Failed'});
+  if (status.state === 'restarting') return h('span', {class: 'pill warn', text: 'Restarting'});
+  if (status.state === 'missing') return h('span', {class: 'pill bad', text: 'Missing'});
+  return null;
 }
 
+const sourceTag = (item) => item.kind !== 'installed' ? null : item.source?.kind === 'upload' ? 'Uploaded' : 'Community';
 const byName = (a, b) => a.localeCompare(b, undefined, {sensitivity: 'base'});
+
+function pluginSwitch(item) {
+  const input = h('input', {type: 'checkbox', checked: item.enabled, 'aria-label': `${item.label || item.name} on`,
+    onchange: () => pluginAction(item.id, input.checked ? 'enable' : 'disable').catch((error) => { input.checked = !input.checked; throw error; })});
+  return h('span', {class: 'switch'}, input);
+}
 
 function renderPlugins() {
   // One A-Z list of everything on this device; where each came from is a tag, not a section.
   const items = [...(pluginList.plugins || [])].sort((a, b) => byName(a.label || a.name || a.id, b.label || b.name || b.id));
-  $('installed').replaceChildren(...items.map(pluginCard));
-  $('uploads').checked = !!config.plugin_uploads;
-  $('dev-host').textContent = location.host;
+  $('installed-count').textContent = `${items.filter((item) => item.enabled).length} on`;
+  $('installed').replaceChildren(...items.map((item) => h('div', {class: `item${item.enabled ? '' : ' off'}`},
+    h('button', {type: 'button', class: 'open', onclick: () => openSheet({type: 'plugin', id: item.id})},
+      h('span', {class: 'text'},
+        h('span', {class: 'name'}, item.label || item.name, sourceTag(item) ? h('span', {class: 'tag', text: sourceTag(item)}) : null),
+        h('span', {class: 'desc', text: item.description || ''})),
+      icon(CHEVRON)),
+    pluginProblem(item),
+    updates[item.id] ? h('button', {type: 'button', class: 'btn small primary', text: 'Update', onclick: () => pluginAction(item.id, 'update')}) : null,
+    pluginSwitch(item))));
+  for (const svg of $('installed').querySelectorAll('.open svg')) svg.classList.add('chev');
+}
+
+function pluginSheet({id}) {
+  const item = (pluginList.plugins || []).find((entry) => entry.id === id);
+  if (!item) return null;
+  const status = item.status || {};
+  const source = item.source || {};
+  const plugin = catalog.plugins.find((entry) => entry.name === id);
+  const meta = [item.author, source.kind === 'github' ? `${source.owner}/${source.repo}@${(source.commit || '').slice(0, 7)}` : null,
+    status.render_ms != null ? `${status.render_ms} ms a frame` : null, status.memory_mb != null ? `${status.memory_mb} MB` : null].filter(Boolean);
+  let settings = null;
+  if (item.enabled && plugin && Object.keys(plugin.defaults).length) {
+    settings = item.screen ? screenSettings(id) : pluginFields(plugin);
+  }
+  return {
+    title: item.label || item.name,
+    sub: [sourceTag(item) || 'Built in', item.version && `v${item.version}`, item.screen ? 'Screen' : 'Data source'].filter(Boolean).join(' · '),
+    body: [
+      item.description ? h('p', {class: 'about', text: item.description}) : null,
+      h('div', {class: 'line-field'}, h('span', {class: 'label', text: 'On'}), pluginSwitch(item)),
+      status.error ? h('div', {class: 'error-text', text: status.error}) : null,
+      updates[id] ? h('div', {class: 'banner'}, h('div', {class: 'grow'}, h('b', {text: 'An update is ready'})),
+        h('button', {type: 'button', class: 'btn primary small', text: 'Update', onclick: () => pluginAction(id, 'update')})) : null,
+      settings ? [h('h3', {text: 'Settings'}), settings] : item.enabled ? null : h('p', {class: 'hint', text: 'Switch it on to set it up.'}),
+      meta.length ? h('div', {class: 'meta'}, meta.map((text) => h('span', {text}))) : null,
+    ],
+    extra: [
+      item.homepage ? h('a', {class: 'btn small quiet', href: item.homepage, target: '_blank', rel: 'noopener', text: 'Homepage'}) : null,
+      status.sandboxed && item.enabled ? h('button', {type: 'button', class: 'btn small quiet', text: 'Restart', onclick: () => pluginAction(id, 'restart')}) : null,
+      item.kind === 'installed' ? h('button', {type: 'button', class: 'btn small quiet danger', text: 'Remove', onclick: () => pluginAction(id, 'remove')}) : null,
+    ].filter(Boolean),
+  };
 }
 
 function renderCommunity(list) {
   // Only what is not here yet: installed ones are already in the list above.
   const have = new Set((pluginList.plugins || []).map((item) => item.id));
   const more = list.filter((entry) => !have.has(entry.id)).sort((a, b) => byName(a.name || a.id, b.name || b.id));
-  $('community').replaceChildren(...(more.length ? more.map((entry) => h('div', {class: 'plugin'},
-    h('div', {class: 'plugin-head'}, h('div', {class: 'grow'}, h('b', {text: entry.name || entry.id}),
-      h('p', {text: entry.description || ''})),
-      h('button', {class: 'btn small primary', text: 'Install', onclick: () => install(entry.url)})),
-    h('div', {class: 'meta'}, entry.author ? h('span', {text: entry.author}) : null))) :
+  $('community').replaceChildren(...(more.length ? more.map((entry) => h('div', {class: 'offer'},
+    h('b', {text: entry.name || entry.id}),
+    h('p', {text: entry.description || ''}),
+    h('div', {class: 'row'}, h('span', {class: 'hint grow', text: entry.author || ''}),
+      h('button', {type: 'button', class: 'btn small primary', text: 'Install', onclick: (event) => install(entry.url, event.currentTarget)})))) :
     [h('p', {class: 'hint', text: list.length ? 'You have every community plugin.' :
       'No community plugins listed yet. Yours could be the first: see docs/plugins.md.'})]));
 }
 
-async function install(url) {
+async function install(url, button) {
   if (dirty) throw new Error('Save or discard your changes first');
-  $('install-button').disabled = true;
+  for (const node of [$('install-button'), button]) if (node) node.disabled = true;
+  if (button) button.textContent = 'Installing…';
   toast('Installing… this can take half a minute');
   try {
     const result = await api('plugins/install', 'POST', {url}, 120);
@@ -576,8 +799,11 @@ async function install(url) {
     saved = clone(config);
     renderAll();
     await loadPlugins();
-    toast(`Installed ${result.installed} and added it to the playlist`);
-  } finally { $('install-button').disabled = false; }
+    toast(`Installed ${names[result.installed] || result.installed}. It is on your sign now.`);
+  } finally {
+    $('install-button').disabled = false;
+    if (button?.isConnected) { button.disabled = false; button.textContent = 'Install'; }
+  }
 }
 
 // --- settings --------------------------------------------------------------------
@@ -617,6 +843,8 @@ function renderSettings() {
   bind('sim-zoom', () => config.simulator.zoom, (v) => { config.simulator.zoom = v; draw(); });
   bind('animation-speed', () => config.simulator.animation_speed, (v) => { config.simulator.animation_speed = v; },
     () => { $('animation-speed-value').textContent = `${config.simulator.animation_speed}×`; });
+  $('uploads').checked = !!config.plugin_uploads;
+  $('dev-host').textContent = location.host;
   renderScenarios();
 }
 
@@ -642,6 +870,7 @@ async function renderSoftware() {
   const pill = $('software-status');
   const update = $('software-update');
   update.hidden = !(info.updatable && info.update_available) || working;
+  $('settings-badge').hidden = update.hidden;
   let note = '';
   if (working) {
     pill.className = 'pill'; pill.textContent = 'Updating';
@@ -820,7 +1049,7 @@ async function finishWelcome(place) {
   localStorage.setItem('welcome-done', 'yes');
   showWelcome(false);
   renderAll();
-  showTab('now');
+  showTab('display');
   if (place) toast(`RackTicker is set up for ${place.name}.`);
 }
 
@@ -828,23 +1057,31 @@ async function finishWelcome(place) {
 
 function renderAll() {
   names = Object.fromEntries(catalog.modules.map((item) => [item.name, item.label]));
-  renderTiles();
   renderScreens();
   renderSettings();
   if (!$('tab-plugins').hidden) renderPlugins();
+  if ($('sheet').open) renderSheet();
   draw();
 }
 
 async function init() {
-  [config, state, catalog] = await Promise.all([api('config'), api('state'), api('catalog')]);
+  [config, state, catalog, pluginList] = await Promise.all([api('config'), api('state'), api('catalog'),
+    api('plugins').catch(() => ({plugins: []}))]);
   saved = clone(config);
   renderAll();
   onState(state);
   connect();
   new ResizeObserver(draw).observe($('window'));
   for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => showTab(button.dataset.tab));
-  showTab(['now', 'screens', 'plugins', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'now');
+  // Old links (#now, #screens) land on Display.
+  showTab(location.hash.slice(1));
   if (needsWelcome()) showWelcome(true);
+  // Updates show up by themselves: a number on Plugins, a dot on Settings.
+  checkUpdates().catch(() => {});
+  api('software', 'GET', undefined, 12).then((info) => {
+    $('settings-badge').hidden = !(info.updatable && info.update_available);
+  }).catch(() => {});
+
   $('welcome-save').onclick = guard(() => finishWelcome(welcomePlace));
   $('welcome-skip').onclick = guard(() => finishWelcome(null));
   $('factory-reset').onclick = guard(factoryReset);
@@ -853,6 +1090,7 @@ async function init() {
   $('pause').onclick = guard(() => control(state?.scheduler.paused ? 'resume' : 'pause'));
   $('next').onclick = guard(() => control('next'));
   $('resume').onclick = guard(() => control('resume'));
+  $('now-settings').onclick = () => { if (state?.scheduler.module) openSheet({type: 'screen', module: state.scheduler.module}); };
   $('power').onchange = guard(() => control('power', {enabled: $('power').checked}));
   $('quick-brightness').oninput = () => { $('quick-brightness-value').textContent = `${$('quick-brightness').value}%`; };
   $('quick-brightness').onchange = guard(async () => {
@@ -866,19 +1104,23 @@ async function init() {
     const result = await api('scenario', 'POST', {module: 'message', interrupt: true,
       message: {title: 'MESSAGE', body: $('message-text').value, scrolling: true}});
     onState(result.state);
+    $('message-text').value = '';
     toast(result.interrupt_accepted ? 'On the sign now' : 'Queued: it shows as soon as the current screen finishes');
   });
-  $('add-screen-button').onclick = guard(() => {
-    if (config.playlist.length >= 32) throw new Error('A playlist holds up to 32 screens');
-    const module = $('add-screen').value;
-    config.playlist.push({id: `${module}-${Date.now().toString(36)}`, module, duration: 10, enabled: true, mode: 'normal'});
-    markDirty(); renderScreens();
-  });
+  $('order-timing').onclick = () => openSheet({type: 'order'});
+  $('more-screens').onclick = () => { showTab('plugins'); setTimeout(() => $('community').scrollIntoView({behavior: 'smooth'}), 50); };
+  $('sheet-close').onclick = closeSheet;
+  // Closing the sheet keeps what was changed in it; the bar along the bottom then offers to save it.
+  $('sheet').addEventListener('close', () => { sheetView = null; paintSaveState(); });
+  $('sheet').addEventListener('click', (event) => { if (event.target === $('sheet')) closeSheet(); });
   $('install-form').onsubmit = guard(async (event) => { event.preventDefault(); await install($('install-url').value.trim()); $('install-url').value = ''; });
+  $('update-all').onclick = guard(updateAll);
   $('check-updates').onclick = guard(async () => {
-    const result = await api('plugins/updates', 'GET', undefined, 30);
-    const waiting = Object.entries(result).filter(([, row]) => row.update).map(([name]) => name);
-    toast(waiting.length ? `Updates available: ${waiting.join(', ')}` : 'Everything is up to date');
+    $('check-updates').disabled = true;
+    try {
+      const count = await checkUpdates(true);
+      toast(count ? `${count} update${count === 1 ? '' : 's'} ready` : 'Everything is up to date');
+    } finally { $('check-updates').disabled = false; }
   });
   $('uploads').onchange = guard(async () => {
     if (dirty) { $('uploads').checked = !$('uploads').checked; throw new Error('Save or discard your changes first'); }
@@ -887,8 +1129,8 @@ async function init() {
   });
   $('fault').onchange = guard(() => control('fault', {enabled: $('fault').checked}));
   $('colour-test').onclick = guard(() => control('preview', {module: 'test_pattern'}));
-  $('save').onclick = guard(save);
-  $('discard').onclick = () => { config = clone(saved); clean(); renderAll(); toast('Changes discarded'); };
+  $('save').onclick = guard(async () => { if (await save()) toast('Saved'); });
+  $('discard').onclick = () => { discard(); toast('Changes discarded'); };
 }
 
 window.addEventListener('beforeunload', (event) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });

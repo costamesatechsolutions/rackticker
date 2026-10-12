@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#eeebe5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#151412" media="(prefers-color-scheme: dark)">
   <title>RackTicker</title>
@@ -13,11 +13,14 @@
 <body>
   <header class="bar">
     <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>RackTicker</div>
+    <!-- Three places to go. On a phone this becomes the bar along the bottom. -->
     <nav class="tabs" role="tablist" aria-label="Sections">
-      <button role="tab" data-tab="now" aria-selected="true">Now</button>
-      <button role="tab" data-tab="screens" aria-selected="false">Screens</button>
-      <button role="tab" data-tab="plugins" aria-selected="false">Plugins</button>
-      <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+      <button role="tab" data-tab="display" aria-selected="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="10" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Display</span></button>
+      <button role="tab" data-tab="plugins" aria-selected="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5h6v3a2 2 0 1 0 4 0h1.5v6h-3a2 2 0 1 0 0 4h3v4h-17v-17h5.5"/></svg><span>Plugins</span><b class="badge" id="plugins-badge" hidden></b></button>
+      <button role="tab" data-tab="settings" aria-selected="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Settings</span><b class="badge dot" id="settings-badge" hidden></b></button>
     </nav>
     <div id="link" class="link"><i></i><span>Connecting</span></div>
   </header>
@@ -39,111 +42,119 @@
       </div>
     </section>
 
-    <!-- NOW: what the panel shows, and quick control -->
-    <section class="page" id="tab-now" role="tabpanel">
-      <div class="card">
-        <div class="bezel">
-          <div class="window" id="window"><canvas id="matrix" width="128" height="32" role="img" aria-label="Live view of the LED panel"></canvas></div>
-          <div class="bezel-foot"><span>128 × 32 · RGB</span><span id="offline" class="offline-note" hidden>Reconnecting…</span><span id="scale">—</span></div>
-        </div>
-        <div class="nowline">
-          <div class="what"><span class="kind" id="now-kind">Playlist</span><strong id="now-name">—</strong>
-            <div class="progress"><i id="now-progress"></i></div></div>
-          <button class="btn" id="pause">Pause</button>
-          <button class="btn primary" id="next">Next →</button>
-        </div>
-        <div class="row" id="back-row" hidden style="margin-top:12px"><span class="hint grow" id="back-note">Showing one screen.</span><button class="btn small" id="resume">Back to the playlist</button></div>
-      </div>
-
-      <div class="cols">
-        <div class="card">
-          <h2>Show now</h2>
-          <div class="tiles" id="tiles"></div>
-        </div>
-        <div class="page">
-          <div class="card">
-            <h2>Display</h2>
-            <div class="fields">
-              <div class="line-field"><span class="label">Panel on</span><span class="switch"><input type="checkbox" id="power" aria-label="Panel on"></span></div>
-              <div class="field"><label for="quick-brightness">Brightness</label>
-                <div class="slider"><input type="range" id="quick-brightness" min="1" max="100"><output id="quick-brightness-value">—</output></div></div>
+    <!-- DISPLAY: the live panel and what plays on it -->
+    <section class="page" id="tab-display" role="tabpanel">
+      <div class="display">
+        <div class="stage">
+          <div class="card live">
+            <div class="bezel">
+              <div class="window" id="window"><canvas id="matrix" width="128" height="32" role="img" aria-label="Live view of the LED panel"></canvas></div>
+              <div class="bezel-foot"><span>128 × 32</span><span id="offline" class="offline-note" hidden>Reconnecting…</span><span id="scale">—</span></div>
             </div>
-          </div>
-          <div class="card">
-            <h2>Message</h2>
-            <form class="fields" id="message-form">
-              <input id="message-text" maxlength="255" placeholder="Dinner's ready!" aria-label="Message text" required>
-              <div class="row"><span class="hint grow">Shows for a few seconds, then the playlist carries on.</span><button class="btn primary" type="submit">Put it up</button></div>
+            <div class="now">
+              <div class="what"><span class="kind" id="now-kind">Playlist</span><strong id="now-name">—</strong></div>
+              <button class="btn icon-btn" id="now-settings" type="button" aria-label="Settings for this screen" title="Settings for this screen">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+            </div>
+            <div class="progress"><i id="now-progress"></i></div>
+            <div class="controls">
+              <button class="btn" id="pause" type="button">Pause</button>
+              <button class="btn primary" id="next" type="button">Next screen</button>
+            </div>
+            <div class="back" id="back-row" hidden><span id="back-note">Showing one screen.</span><button class="btn small" id="resume" type="button">Back to the playlist</button></div>
+            <div class="quick">
+              <label class="power"><span class="switch"><input type="checkbox" id="power" aria-label="Panel on"></span><span>On</span></label>
+              <div class="slider grow" title="Brightness"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>
+                <input type="range" id="quick-brightness" min="1" max="100" aria-label="Brightness"><output id="quick-brightness-value">—</output></div>
+            </div>
+            <form class="message" id="message-form">
+              <input id="message-text" maxlength="255" placeholder="Put a message up…" aria-label="Message for the panel" required>
+              <button class="btn" type="submit">Send</button>
             </form>
           </div>
         </div>
-      </div>
-    </section>
 
-    <!-- SCREENS: the playlist, each screen with its own settings -->
-    <section class="page" id="tab-screens" role="tabpanel" hidden>
-      <div class="card">
-        <h2>Playlist <span class="spacer"></span><span class="hint" id="screens-count" style="font-family:inherit;text-transform:none;letter-spacing:0"></span></h2>
-        <p class="hint">Screens play in this order. A screen with nothing to show (no game on, no plane nearby) is skipped until it does.</p>
+        <div class="lineup">
+          <div class="section-title">On your sign <span class="count" id="screens-count"></span></div>
+          <div class="list" id="screens"></div>
+          <div class="lineup-foot">
+            <button class="link-btn" id="more-screens" type="button">+ Get more screens</button>
+            <button class="link-btn quiet-link" id="order-timing" type="button">Change order and timing</button>
+          </div>
+          <p class="hint under">Switch on what you want and it takes care of the rest: each screen stays up until it has finished showing what it has, and screens with nothing to show (no game on, no plane nearby) wait their turn.</p>
+        </div>
       </div>
-      <div class="screens" id="screens"></div>
-      <div class="card row"><select id="add-screen" class="grow" aria-label="Screen to add"></select><button class="btn" id="add-screen-button">Add screen</button></div>
     </section>
 
     <!-- PLUGINS -->
     <section class="page" id="tab-plugins" role="tabpanel" hidden>
-      <div class="section-title">Your plugins <span class="spacer"></span><button class="btn small quiet" id="check-updates">Check for updates</button></div>
-      <div class="plugins" id="installed"></div>
-      <div class="card" id="community-card">
-        <h2>Get more</h2>
-        <div class="plugins" id="community"></div>
-        <div class="fields">
+      <div class="banner" id="updates-banner" hidden>
+        <div class="grow"><b id="updates-title">Updates ready</b><span id="updates-names"></span></div>
+        <button class="btn primary" id="update-all" type="button">Update all</button>
+      </div>
+      <div>
+        <div class="section-title">Installed <span class="count" id="installed-count"></span><span class="spacer"></span>
+          <button class="btn small quiet" id="check-updates" type="button">Check for updates</button></div>
+        <div class="list" id="installed"></div>
+      </div>
+      <div>
+        <div class="section-title">Get more</div>
+        <div class="store" id="community"></div>
+        <details class="card from-link">
+          <summary>Install from a GitHub link</summary>
           <form class="install" id="install-form">
             <input type="url" id="install-url" placeholder="https://github.com/someone/rackticker-plugin" aria-label="GitHub link" required>
             <button class="btn primary" type="submit" id="install-button">Install</button>
           </form>
-          <p class="hint">Or paste a GitHub link to any plugin (or a folder in a repository). Plugins you add run in their own sandboxed process: if one misbehaves, only it restarts.</p>
-        </div>
-      </div>
-      <div class="card">
-        <h2>For plugin developers</h2>
-        <div class="fields">
-          <div class="line-field"><span class="label">Allow plugin uploads from this network</span><span class="switch"><input type="checkbox" id="uploads" aria-label="Allow plugin uploads"></span></div>
-          <p class="hint">Lets <code>python -m app.dev push ./my-plugin</code> install straight from your computer. Anyone on your network could then run code on this device, so switch it off when you are done.</p>
-          <pre id="dev-snippet">python -m app.dev new my_plugin
-python -m app.dev preview ./my_plugin
-python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
-        </div>
+          <p class="hint">Any plugin, or a folder in a repository. Plugins you add run in their own sandboxed process: if one misbehaves, only it restarts.</p>
+        </details>
       </div>
     </section>
 
     <!-- SETTINGS -->
     <section class="page" id="tab-settings" role="tabpanel" hidden>
       <div class="card">
-        <h2>Home</h2>
-        <div class="fields"><div class="field"><span class="label">Location</span><div id="home-location"></div>
+        <h2>Location</h2>
+        <div class="fields"><div class="field"><div id="home-location"></div>
           <span class="hint">Used for weather, nearby flights and traffic. Stored only on this device.</span></div></div>
       </div>
       <div class="card">
-        <h2>Display</h2>
+        <h2>Brightness</h2>
         <div class="fields">
-          <div class="field"><label for="brightness">Brightness</label><div class="slider"><input type="range" id="brightness" min="1" max="100"><output id="brightness-value"></output></div></div>
+          <div class="slider"><input type="range" id="brightness" min="1" max="100" aria-label="Brightness"><output id="brightness-value"></output></div>
           <div class="line-field"><span class="label">Dim at night</span><span class="switch"><input type="checkbox" id="night-mode" aria-label="Dim at night"></span></div>
           <div class="fields two" id="night-fields">
             <div class="field"><label for="night-start">From</label><input type="time" id="night-start" required></div>
             <div class="field"><label for="night-end">Until</label><input type="time" id="night-end" required></div>
             <div class="field"><label for="night-brightness">Night brightness</label><div class="slider"><input type="range" id="night-brightness" min="0" max="100"><output id="night-brightness-value"></output></div></div>
           </div>
-          <div class="field"><span class="label">Between screens</span><div class="segmented" id="transition"></div></div>
-          <details class="advanced"><summary>Advanced</summary><div class="fields two">
-            <div class="field"><label for="scroll-speed">Scroll speed (pixels a second)</label><input type="number" id="scroll-speed" min="1" max="160"><span class="hint">30 moves exactly one LED per frame: the smoothest.</span></div>
-            <div class="field"><label for="transition-seconds">Transition length (seconds)</label><input type="number" id="transition-seconds" min="0.1" max="2" step="0.1"></div>
-            <div class="field"><label for="fps">Frames a second</label><input type="number" id="fps" min="5" max="30"></div>
-          </div></details>
         </div>
       </div>
       <div class="card">
-        <h2>Home Assistant <span class="spacer"></span><span class="pill" id="ha-status"></span></h2>
+        <h2>Software <span class="spacer"></span><span class="pill" id="software-status"></span></h2>
+        <div class="fields">
+          <div class="row"><span class="grow" id="software-version">Checking…</span><button class="btn small primary" id="software-update" type="button" hidden>Update</button></div>
+          <p class="hint" id="software-note"></p>
+          <div class="field"><label for="timezone">Time zone</label><div class="row"><select id="timezone" class="grow"></select><button class="btn small" id="timezone-save" type="button">Set</button></div></div>
+        </div>
+      </div>
+      <details class="card">
+        <summary>Look and feel</summary>
+        <div class="fields">
+          <div class="field"><span class="label">Between screens</span><div class="segmented" id="transition"></div></div>
+          <div class="fields two">
+            <div class="field"><label for="scroll-speed">Scroll speed (pixels a second)</label><input type="number" id="scroll-speed" min="1" max="160"><span class="hint">30 moves exactly one LED per frame: the smoothest.</span></div>
+            <div class="field"><label for="transition-seconds">Transition length (seconds)</label><input type="number" id="transition-seconds" min="0.1" max="2" step="0.1"></div>
+            <div class="field"><label for="fps">Frames a second</label><input type="number" id="fps" min="5" max="30"></div>
+          </div>
+          <div class="fields two">
+            <div class="field"><span class="label">Preview on this page</span><div class="segmented" id="sim-mode"></div></div>
+            <div class="field"><label for="sim-zoom">Preview size</label><select id="sim-zoom"><option value="fit">Fit the window</option><option value="4">4×</option><option value="6">6×</option><option value="8">8×</option></select></div>
+          </div>
+        </div>
+      </details>
+      <details class="card">
+        <summary>Home Assistant <span class="pill" id="ha-status"></span></summary>
         <div class="fields">
           <div class="line-field"><span class="label">Connect through MQTT</span><span class="switch"><input type="checkbox" id="ha-enabled" aria-label="Connect to Home Assistant"></span></div>
           <div class="fields two" id="ha-fields">
@@ -155,35 +166,33 @@ python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
           </div>
           <p class="hint">RackTicker appears in Home Assistant as a device: a light for on/off and brightness, a screen picker, a <b>Show …</b> switch for each screen, Next and Message. Expose the switches to Alexa or Google through Home Assistant (or its Matter bridge) and say “turn on Show Sportsbook”. Needs the Mosquitto broker add-on, or any MQTT broker.</p>
         </div>
-      </div>
-      <div class="card">
-        <h2>Software <span class="spacer"></span><span class="pill" id="software-status"></span></h2>
+      </details>
+      <details class="card">
+        <summary>Password, restart and reset</summary>
         <div class="fields">
-          <div class="row"><span class="grow" id="software-version">Checking…</span><button class="btn small" id="software-update" type="button" hidden>Update</button></div>
-          <p class="hint" id="software-note"></p>
-          <div class="row"><label for="timezone" class="label">Time zone</label><select id="timezone" class="grow"></select><button class="btn small" id="timezone-save" type="button">Set</button></div>
-          <div class="row"><input type="password" id="access-password" autocomplete="new-password" placeholder="Control page password" class="grow"><button class="btn small" id="access-save" type="button">Set password</button></div>
-          <p class="hint" id="access-note">Optional. Anyone opening this page must then enter it (any user name). Leave empty and press Set to remove it.</p>
-          <div class="row"><button class="btn small quiet" id="restart-display" type="button">Restart the display</button><span class="hint grow">Start the display again without unplugging anything. The control page comes back after a few seconds.</span></div>
-          <div class="row"><label for="reset-scope" class="label">Reset</label><select id="reset-scope" class="grow"></select><button class="btn small quiet" id="factory-reset" type="button">Reset…</button></div>
-          <p class="hint" id="reset-note">Back to the default settings and playlist, with installed plugins removed. Your old settings are kept as a backup; Wi-Fi is not changed.</p>
+          <div class="field"><label for="access-password">Control page password</label>
+            <div class="row"><input type="password" id="access-password" autocomplete="new-password" placeholder="No password" class="grow"><button class="btn small" id="access-save" type="button">Set</button></div>
+            <span class="hint" id="access-note">Optional. Anyone opening this page must then enter it (any user name). Leave empty and press Set to remove it.</span></div>
+          <div class="field"><span class="label">Restart</span>
+            <div class="row"><span class="hint grow">Start the display again without unplugging anything. This page comes back after a few seconds.</span><button class="btn small" id="restart-display" type="button">Restart the display</button></div></div>
+          <div class="field"><label for="reset-scope">Reset</label>
+            <div class="row"><select id="reset-scope" class="grow"></select><button class="btn small danger" id="factory-reset" type="button">Reset…</button></div>
+            <span class="hint" id="reset-note">Back to the default settings and playlist, with installed plugins removed. Your old settings are kept as a backup; Wi-Fi is not changed.</span></div>
         </div>
-      </div>
-      <div class="card">
-        <h2>This preview</h2>
-        <div class="fields">
-          <div class="field"><span class="label">Look</span><div class="segmented" id="sim-mode"></div></div>
-          <div class="field"><label for="sim-zoom">Size</label><select id="sim-zoom"><option value="fit">Fit the window</option><option value="4">4×</option><option value="6">6×</option><option value="8">8×</option></select></div>
-        </div>
-      </div>
+      </details>
       <details class="card" id="developer">
-        <summary class="section-title" style="margin:0;cursor:pointer">Developer tools</summary>
-        <div class="fields" style="margin-top:16px">
+        <summary>Developer tools</summary>
+        <div class="fields">
           <div class="field"><label for="animation-speed">Animation speed</label><div class="slider"><input type="range" id="animation-speed" min="0.1" max="2" step="0.1"><output id="animation-speed-value"></output></div><span class="hint">Slow motion to inspect animations. Clocks and playlist timing stay real.</span></div>
           <div class="field"><span class="label">Mock data (screens without a live source)</span><div id="scenarios" class="fields"></div></div>
           <div class="line-field"><span class="label">Pretend the internet is down</span><span class="switch"><input type="checkbox" id="fault" aria-label="Simulate an outage"></span></div>
           <div class="row"><button class="btn small" id="colour-test" type="button">Colour test</button><span class="hint grow">Each block should match its label; see Panel tuning in the README if not.</span></div>
           <div class="row"><a class="btn small" href="/api/frame.png" download>Save frame (PNG)</a><a class="btn small" href="/api/sequence.zip" download>Last 3 seconds (ZIP)</a></div>
+          <div class="line-field"><span class="label">Allow plugin uploads from this network</span><span class="switch"><input type="checkbox" id="uploads" aria-label="Allow plugin uploads"></span></div>
+          <p class="hint">Lets <code>python -m app.dev push ./my-plugin</code> install straight from your computer. Anyone on your network could then run code on this device, so switch it off when you are done.</p>
+          <pre id="dev-snippet">python -m app.dev new my_plugin
+python -m app.dev preview ./my_plugin
+python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
           <div class="field"><span class="label">Activity</span><div class="log" id="log"></div></div>
           <p class="hint" id="providers"></p>
         </div>
@@ -191,6 +200,17 @@ python -m app.dev push ./my_plugin --to <span id="dev-host"></span></pre>
       <footer>RackTicker · rack enhancement that fits in 2U · <a href="/static/LICENSE">AGPL-3.0</a> · <a href="/api/source.zip">Source code</a></footer>
     </section>
   </main>
+
+  <!-- One sheet for every "settings for this thing": a screen, or a plugin. -->
+  <dialog class="sheet" id="sheet" aria-labelledby="sheet-title">
+    <div class="sheet-head">
+      <div class="grow"><h2 id="sheet-title"></h2><span class="hint" id="sheet-sub"></span></div>
+      <button class="btn icon-btn quiet" id="sheet-close" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-body" id="sheet-body"></div>
+    <div class="sheet-foot" id="sheet-foot"></div>
+  </dialog>
 
   <div class="savebar" id="savebar" hidden><span id="save-text">Unsaved changes</span><button class="btn" id="discard">Discard</button><button class="btn primary" id="save">Save</button></div>
   <div class="toast" id="toast" role="status" hidden></div>

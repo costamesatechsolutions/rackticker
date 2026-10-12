@@ -183,8 +183,9 @@ async def known_updates(manager, fresh=False):
 
 
 def forget_update(name):
-    if _updates["data"]:
-        _updates["data"].pop(name, None)
+    """Just updated: the copy here is GitHub's now."""
+    if _updates["data"] is not None and name in _updates["data"]:
+        _updates["data"][name] = {"update": False}
 
 
 def remember_tree(path, source, tree):

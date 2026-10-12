@@ -510,7 +510,6 @@ function signScreens() {
 function setScreen(module, on) {
   const entries = entriesFor(module);
   if (on && !entries.length) {
-    if (config.playlist.length >= 32) throw new Error('Up to 32 screens can be on at once');
     config.playlist.push({id: `${module}-${Date.now().toString(36)}`, module, duration: DEFAULT_SECONDS[module] || 12,
       enabled: true, mode: 'normal'});
   }
@@ -632,7 +631,6 @@ function orderSheet() {
       h('p', {class: 'hint', text: 'Screens play top to bottom, each for at least the seconds shown (longer if it is mid-story). Switched-off screens are crossed out and skipped.'}),
       h('div', {class: 'list'}, rows),
       h('div', {class: 'row'}, pick, h('button', {type: 'button', class: 'btn small', text: 'Play it twice', onclick: () => {
-        if (list.length >= 32) throw new Error('Up to 32 screens');
         list.push({id: `${pick.value}-${Date.now().toString(36)}`, module: pick.value, duration: DEFAULT_SECONDS[pick.value] || 12,
           enabled: true, mode: 'normal'});
         markDirty(); renderSheet();
@@ -654,9 +652,11 @@ async function loadPlugins() {
 
 // Asked when the page opens and on the Plugins tab. The device keeps GitHub's
 // answer for half an hour; "Check for updates" asks again.
+let updatesProblem = '';
 async function checkUpdates(fresh = false) {
   const result = await api(`plugins/updates${fresh ? '?fresh=1' : ''}`, 'GET', undefined, 40);
   updates = Object.fromEntries(Object.entries(result).filter(([, row]) => row.update).map(([name]) => [name, true]));
+  updatesProblem = Object.values(result).find((row) => row.error)?.error || '';
   renderUpdates();
   return Object.keys(updates).length;
 }
@@ -675,23 +675,30 @@ function renderUpdates() {
 async function updateAll() {
   if (dirty) throw new Error('Save or discard your changes first');
   const waiting = Object.keys(updates);
-  $('update-all').disabled = true;
-  let done = 0;
+  const button = $('update-all');
+  button.disabled = true;
+  button.textContent = 'Updating…';
+  toast(waiting.length > 1 ? `Updating ${waiting.length} plugins… this can take a minute` : 'Updating…');
   try {
-    for (const id of waiting) {
-      toast(`Updating ${done + 1} of ${waiting.length}…`);
-      pluginList = await api('plugins', 'POST', {id, action: 'update'}, 120);
-      delete updates[id];
-      done += 1;
-    }
-  } finally {
-    $('update-all').disabled = false;
+    const result = await api('plugins/update-all', 'POST', {}, 600);
+    pluginList = result;
+    for (const id of result.updated) delete updates[id];
     [config, catalog] = await Promise.all([api('config'), api('catalog')]);
     saved = clone(config);
     renderAll();
     renderUpdates();
+    const failed = Object.entries(result.failed);
+    if (failed.length) {
+      const [id, why] = failed[0];
+      toast(`${result.updated.length ? `Updated ${result.updated.length}. ` : ''}${label(id)} did not update: ${why}`, true);
+    } else {
+      toast(result.updated.length === 1 ? 'Updated' : `Updated ${result.updated.length} plugins`);
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Update all';
   }
-  toast(done === 1 ? 'Updated' : `Updated ${done} plugins`);
+  function label(id) { return (pluginList.plugins || []).find((item) => item.id === id)?.label || id; }
 }
 
 async function pluginAction(id, action) {
@@ -1119,6 +1126,7 @@ async function init() {
     $('check-updates').disabled = true;
     try {
       const count = await checkUpdates(true);
+      if (updatesProblem && !count) throw new Error(updatesProblem);
       toast(count ? `${count} update${count === 1 ? '' : 's'} ready` : 'Everything is up to date');
     } finally { $('check-updates').disabled = false; }
   });

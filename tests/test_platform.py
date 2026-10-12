@@ -3,13 +3,15 @@ import asyncio
 import io
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import time
 import unittest
 import unittest.mock
 import zipfile
 
-from app.core.installer import InstallError, Installer, parse_github, safe_extract
+from app.core import installer as installer_module
+from app.core.installer import InstallError, Installer, local_tree_id, parse_github, safe_extract
 from app.core.plugin_manager import PluginManager
 from app.web.server import RUNTIME, STORE, create_app
 from app.web import plugins_api
@@ -26,6 +28,66 @@ def zipped(folder, prefix="counter-main/"):
     return out.getvalue()
 
 
+def blob(data):
+    import hashlib
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+class FakeGitHub:
+    """GitHub's tree listing and raw files for folders on disk, counting API requests."""
+    COMMIT = "c" * 40
+
+    def __init__(self, folders, damage=None, limited=False):
+        self.files, self.tree = {}, []
+        for prefix, folder in folders.items():
+            parent = prefix.rsplit("/", 1)[0] if "/" in prefix else None
+            if parent and not any(item["path"] == parent for item in self.tree):
+                self.tree.append({"path": parent, "type": "tree", "sha": "d" * 40, "mode": "040000"})
+            self.tree.append({"path": prefix, "type": "tree", "sha": local_tree_id(folder), "mode": "040000"})
+            for path in sorted(folder.rglob("*")):
+                if path.is_file() and "__pycache__" not in path.parts:
+                    name = f"{prefix}/{path.relative_to(folder)}"
+                    self.files[name] = path.read_bytes()
+                    self.tree.append({"path": name, "type": "blob", "sha": blob(self.files[name]),
+                                      "size": len(self.files[name]), "mode": "100644"})
+        self.damage, self.limited, self.api_calls, self.fetched = damage, limited, 0, []
+        installer_module._trees.clear()
+
+    def get(self, url, params=None, headers=None):
+        if url.startswith("https://api.github.com/"):
+            self.api_calls += 1
+            if self.limited:
+                return FakeResponse(403, {}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(time.time()) + 900)})
+            return FakeResponse(200, {"sha": self.COMMIT, "tree": self.tree, "truncated": False})
+        path = url.split(f"/{self.COMMIT}/", 1)[1]
+        self.fetched.append(path)
+        data = self.files[path]
+        return FakeResponse(200, data + b"!" if self.damage and path.endswith(self.damage) else data)
+
+
+class FakeResponse:
+    def __init__(self, status, body, headers=None):
+        self.status, self.body, self.headers = status, body, headers or {}
+
+    async def __aenter__(self): return self
+    async def __aexit__(self, *exc): return False
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise RuntimeError(self.status)
+
+    async def json(self): return self.body
+
+    @property
+    def content(self):
+        body = self.body
+
+        class Content:
+            async def iter_chunked(self, size):
+                yield body
+        return Content()
+
+
 class InstallerTests(unittest.IsolatedAsyncioTestCase):
     def test_github_links(self):
         self.assertEqual(parse_github("https://github.com/a/b"), ("a", "b", None, ""))
@@ -33,29 +95,73 @@ class InstallerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(InstallError):
             parse_github("https://example.com/a/b")
 
-    async def test_an_update_check_looks_at_the_plugins_own_folder(self):
-        """In a shared repository the branch moves whenever any plugin does."""
-        head, folder_commit = "a" * 40, "b" * 40
+    async def test_installs_one_folder_of_a_shared_repository_with_one_api_request(self):
+        github = FakeGitHub({"plugins/counter": FIXTURE, "plugins/other": FIXTURE})
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Installer(Path(directory) / "plugins")
+            manifest = await installer.from_github("https://github.com/o/r/tree/main/plugins/counter", github)
+            self.assertEqual(manifest.id, "counter")
+            self.assertEqual(github.api_calls, 1)
+            self.assertNotIn("plugins/other/plugin.json", github.fetched)  # only this plugin's files
+            source = manifest.source()
+            self.assertEqual(source["tree"], local_tree_id(FIXTURE))
+            self.assertEqual(local_tree_id(manifest.path), source["tree"])  # untouched on disk
+            await installer.from_github("https://github.com/o/r/tree/main/plugins/counter", github)
+            self.assertEqual(github.api_calls, 1)  # the listing is kept and shared
 
-        class Response:
-            def __init__(self, body): self.body, self.status = body, 200
-            async def __aenter__(self): return self
-            async def __aexit__(self, *exc): return False
-            def raise_for_status(self): pass
-            async def json(self): return self.body
-            async def text(self): return self.body
+    async def test_a_damaged_download_is_refused(self):
+        github = FakeGitHub({"plugins/counter": FIXTURE}, damage="plugin.json")
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(InstallError):
+            await Installer(Path(directory) / "plugins").from_github("https://github.com/o/r/tree/main/plugins/counter", github)
 
-        class Session:
-            def __init__(self, listed): self.listed, self.asked = listed, []
-            def get(self, url, params=None, headers=None):
-                self.asked.append(params)
-                return Response(self.listed if params is not None else head)
+    async def test_githubs_hourly_limit_is_said_plainly(self):
+        github = FakeGitHub({"plugins/counter": FIXTURE}, limited=True)
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(InstallError) as caught:
+            await Installer(Path(directory) / "plugins").from_github("https://github.com/o/r/tree/main/plugins/counter", github)
+        self.assertIn("60 times an hour", str(caught.exception))
 
-        session = Session([{"sha": folder_commit}])
-        self.assertEqual(await Installer.latest_commit(session, "o", "r", "main", "plugins/f1"), folder_commit)
-        self.assertEqual(session.asked[0]["path"], "plugins/f1")
-        self.assertEqual(await Installer.latest_commit(Session([]), "o", "r", "main", "plugins/f1"), head)
-        self.assertEqual(await Installer.latest_commit(Session([]), "o", "r", "main"), head)
+    async def test_a_repository_of_several_plugins_needs_a_folder(self):
+        github = FakeGitHub({"plugins/counter": FIXTURE, "plugins/other": FIXTURE})
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(InstallError) as caught:
+            await Installer(Path(directory) / "plugins").from_github("https://github.com/o/r/tree/main/plugins", github)
+        self.assertIn("several plugins", str(caught.exception))
+
+    async def test_an_update_check_asks_github_once_per_repository(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            def installed(name, tree=None):
+                folder = Path(directory) / name
+                shutil.copytree(FIXTURE, folder, ignore=shutil.ignore_patterns("__pycache__"))
+                source = {"kind": "github", "owner": "o", "repo": "r", "ref": "main", "folder": f"plugins/{name}",
+                          "url": f"https://github.com/o/r/tree/main/plugins/{name}"}
+                if tree:
+                    source["tree"] = tree
+                (folder / ".source.json").write_text(json.dumps(source))
+                return SimpleNamespace(path=folder, source=lambda: json.loads((folder / ".source.json").read_text()))
+
+            current = local_tree_id(FIXTURE)
+            manager = SimpleNamespace(installed={
+                "same": installed("same", current),     # fingerprint recorded, unchanged
+                "older": installed("older"),            # installed before fingerprints, unchanged on disk
+                "changed": installed("changed", current),
+            })
+            listing = {"sha": "c" * 40, "entries": {
+                "plugins/same": {"type": "tree", "sha": current}, "plugins/older": {"type": "tree", "sha": current},
+                "plugins/changed": {"type": "tree", "sha": "e" * 40}}}
+            asked = []
+
+            async def tree(session, owner, repo, ref, fresh=False):
+                asked.append((owner, repo, ref))
+                return listing
+
+            plugins_api._updates.update(at=0.0, data=None)
+            with unittest.mock.patch.object(plugins_api, "repo_tree", tree):
+                result = await plugins_api.known_updates(manager, fresh=True)
+            self.assertEqual(asked, [("o", "r", "main")])
+            self.assertEqual({name: row["update"] for name, row in result.items()},
+                             {"same": False, "older": False, "changed": True})
+            self.assertEqual(manager.installed["older"].source()["tree"], current)  # remembered from now on
+            plugins_api._updates.update(at=0.0, data=None)
 
     def test_archives_cannot_escape(self):
         out = io.BytesIO()

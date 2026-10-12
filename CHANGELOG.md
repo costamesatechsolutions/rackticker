@@ -15,6 +15,13 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 - Plugins are a compact list, each with its own settings sheet; Settings keeps location,
   brightness and software up front and folds the rest away. The page no longer scrolls
   sideways on a phone.
+- **Updating plugins no longer runs into GitHub's limit.** GitHub answers a home network 60
+  times an hour, and each plugin update used to ask it two or three times, so "Update all"
+  stopped after the first one or two with "rate limit exceeded". Now one look at a repository
+  covers every plugin from it, and a plugin downloads just its own files (checked against
+  GitHub's fingerprint of each) instead of the whole community repository, which had grown
+  past 18 MB. If GitHub does say no, the page says so in words and when to try again.
+- Turn on as many screens as you have: the playlist held at most 32.
 
 ## 1.8.2 - 2026-10-11
 

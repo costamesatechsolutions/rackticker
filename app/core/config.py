@@ -188,8 +188,8 @@ def validate_config(raw, registry=None):
         if not isinstance(m["message"][key], str) or not 1 <= len(m["message"][key].strip()) <= limit:
             raise ConfigError(f"Message {key} must contain 1–{limit} characters")
     entries = c["playlist"]
-    if not isinstance(entries, list) or not 1 <= len(entries) <= 32:
-        raise ConfigError("Playlist must contain 1–32 entries")
+    if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_PLAYLIST:
+        raise ConfigError(f"Playlist must contain 1–{MAX_PLAYLIST} entries")
     ids = set()
     template = {"id": "", "module": "clock", "duration": 8, "enabled": True, "mode": "normal"}
     for i, raw_entry in enumerate(entries):
@@ -207,6 +207,8 @@ def validate_config(raw, registry=None):
 
 # A first run shows real screens from the plugins that ship, in an order that
 # mixes quick glances with longer reads; demo-data screens are left out.
+# Every installed screen can be on, with room to repeat some (the clock between others).
+MAX_PLAYLIST = 200
 STARTER = (("clock", 8), ("weather", 10), ("finance", 20), ("sportsbook", 24), ("news", 30), ("tixclock", 15),
            ("flight", 12), ("clock", 8), ("town", 20))
 # Shipped but off on a fresh install, one switch away on the Plugins page: regional or niche.
@@ -239,7 +241,7 @@ class ConfigStore:
             # order/settings, but add the new screen once when upgrading.
             has_tix_entry = any(entry.get("module") == "tixclock" for entry in config["playlist"])
             if ("tixclock" not in raw.get("modules", {}) and not has_tix_entry
-                    and len(config["playlist"]) < 32):
+                    and len(config["playlist"]) < MAX_PLAYLIST):
                 tix_entry = copy.deepcopy(next(entry for entry in DEFAULT_CONFIG["playlist"] if entry["module"] == "tixclock"))
                 ids = {entry["id"] for entry in config["playlist"]}
                 while tix_entry["id"] in ids:

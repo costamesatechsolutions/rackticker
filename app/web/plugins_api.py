@@ -15,8 +15,8 @@ import time
 import aiohttp
 from aiohttp import web
 
-from app.core.config import DEFAULT_CONFIG, MODULES
-from app.core.installer import InstallError, Installer
+from app.core.config import DEFAULT_CONFIG, MAX_PLAYLIST, MODULES
+from app.core.installer import InstallError, Installer, folder_id, local_tree_id, repo_tree
 
 log = logging.getLogger("plugins")
 MANAGER = web.AppKey("plugin_manager", object) if hasattr(web, "AppKey") else "plugin_manager"
@@ -74,8 +74,7 @@ def add_routes(app, runtime_key, store_key):
                     raise ValueError("Only plugins installed from GitHub can update themselves")
                 await install(runtime, store, manager, lambda session: installer(runtime, manager).from_github(
                     source["url"], session))
-                if _updates["data"]:
-                    _updates["data"].pop(name, None)
+                forget_update(name)
             else:
                 raise ValueError("Unknown plugin action")
         return web.json_response(describe_all(runtime, manager))
@@ -114,37 +113,85 @@ def add_routes(app, runtime_key, store_key):
         return web.json_response({"installed": manifest.id, **describe_all(runtime, manager)})
 
     async def updates(request):
-        """For each GitHub-installed plugin: is a newer commit available? ?fresh=1 asks GitHub again."""
-        runtime, _, manager = parts(request)
-        cached = _updates["data"]
-        if (cached is not None and request.query.get("fresh") != "1"
-                and time.monotonic() - _updates["at"] < UPDATES_SECONDS):
-            return web.json_response({name: row for name, row in cached.items() if name in manager.installed})
-        result = {}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-            for name, manifest in manager.installed.items():
-                source = manifest.source()
-                if source.get("kind") != "github":
+        """For each plugin installed from GitHub: is it different from GitHub's copy? ?fresh=1 asks again."""
+        _, _, manager = parts(request)
+        return web.json_response(await known_updates(manager, fresh=request.query.get("fresh") == "1"))
+
+    async def update_all(request):
+        """Every plugin with an update, one after the other, from one look at GitHub."""
+        runtime, store, manager = parts(request)
+        updated, failed = [], {}
+        async with lock:
+            found = await known_updates(manager)
+            for name in [name for name, row in found.items() if row.get("update")]:
+                url = manager.installed[name].source().get("url") if name in manager.installed else None
+                if not url:
                     continue
                 try:
-                    # Compare the plugin's own folder: an install from before that was
-                    # recorded has nothing to compare, so it is offered the update once.
-                    latest = await Installer.latest_commit(session, source["owner"], source["repo"],
-                                                           source["ref"], source.get("folder", ""))
-                    current = source.get("folder_commit")
-                    result[name] = {"current": current or source.get("commit"), "latest": latest,
-                                    "update": latest != current}
-                except (aiohttp.ClientError, asyncio.TimeoutError, InstallError, KeyError) as exc:
-                    result[name] = {"error": str(exc) or type(exc).__name__}
-        _updates.update(at=time.monotonic(), data=result)
-        return web.json_response(result)
+                    await install(runtime, store, manager,
+                                  lambda session, url=url: installer(runtime, manager).from_github(url, session))
+                    updated.append(name)
+                    forget_update(name)
+                except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                    failed[name] = str(exc) or type(exc).__name__
+        return web.json_response({"updated": updated, "failed": failed, **describe_all(runtime, manager)})
 
     async def community(request):
         return web.json_response(await community_index())
 
     app.add_routes([web.get("/api/plugins", listing), web.post("/api/plugins", action),
                     web.post("/api/plugins/install", install_github), web.post("/api/plugins/upload", upload),
-                    web.get("/api/plugins/updates", updates), web.get("/api/plugins/community", community)])
+                    web.get("/api/plugins/updates", updates), web.post("/api/plugins/update-all", update_all),
+                    web.get("/api/plugins/community", community)])
+
+
+async def known_updates(manager, fresh=False):
+    """{plugin: {"update": bool} or {"error": text}} for plugins installed from GitHub.
+
+    One request to GitHub per repository, however many plugins came from it, and the
+    answer is kept UPDATES_SECONDS. A plugin is out of date when its folder's
+    fingerprint on GitHub differs from the one it was installed with."""
+    cached = _updates["data"]
+    if cached is not None and not fresh and time.monotonic() - _updates["at"] < UPDATES_SECONDS:
+        return {name: row for name, row in cached.items() if name in manager.installed}
+    result, listings = {}, {}
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+        for name, manifest in manager.installed.items():
+            source = manifest.source()
+            if source.get("kind") != "github":
+                continue
+            try:
+                key = (source["owner"], source["repo"], source["ref"])
+                if key not in listings:
+                    listings[key] = await repo_tree(session, *key, fresh=fresh)
+                latest = folder_id(listings[key], source.get("folder", ""))
+                if latest is None:
+                    result[name] = {"error": "Its folder is no longer in that repository"}
+                    continue
+                current = source.get("tree")
+                if current is None:  # installed before fingerprints were kept: look at the files
+                    current = await asyncio.to_thread(local_tree_id, manifest.path)
+                    if current == latest:
+                        remember_tree(manifest.path, source, current)
+                result[name] = {"update": latest != current}
+            except (aiohttp.ClientError, asyncio.TimeoutError, InstallError, KeyError) as exc:
+                result[name] = {"error": str(exc) or type(exc).__name__}
+    # A refusal (GitHub's hourly limit) is not kept, so the next look tries again.
+    if not any("error" in row for row in result.values()):
+        _updates.update(at=time.monotonic(), data=result)
+    return result
+
+
+def forget_update(name):
+    if _updates["data"]:
+        _updates["data"].pop(name, None)
+
+
+def remember_tree(path, source, tree):
+    try:
+        (Path(path) / ".source.json").write_text(json.dumps({**source, "tree": tree}, indent=2))
+    except OSError:
+        pass
 
 
 def installer(runtime, manager):
@@ -165,7 +212,8 @@ async def enable(runtime, store, manager, name):
     raw["enabled_plugins"] = list(dict.fromkeys(enabled_list(runtime, manager) + [name]))
     plugin = runtime.registry.plugins[name]
     # Switching a screen on is asking to see it: add it to the playlist once.
-    if plugin.module and not any(entry["module"] == name for entry in raw["playlist"]) and len(raw["playlist"]) < 32:
+    if (plugin.module and not any(entry["module"] == name for entry in raw["playlist"])
+            and len(raw["playlist"]) < MAX_PLAYLIST):
         ids = {entry["id"] for entry in raw["playlist"]}
         entry_id = name
         while entry_id in ids:
@@ -194,7 +242,7 @@ async def disable(runtime, store, name, forget=False):
 
 
 async def install(runtime, store, manager, fetch):
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180)) as session:
         try:
             manifest = await fetch(session)
         except aiohttp.ClientError as exc:

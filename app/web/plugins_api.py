@@ -154,7 +154,7 @@ async def known_updates(manager, fresh=False):
     cached = _updates["data"]
     if cached is not None and not fresh and time.monotonic() - _updates["at"] < UPDATES_SECONDS:
         return {name: row for name, row in cached.items() if name in manager.installed}
-    result, listings = {}, {}
+    result, listings, refused = {}, {}, {}
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         for name, manifest in manager.installed.items():
             source = manifest.source()
@@ -162,8 +162,14 @@ async def known_updates(manager, fresh=False):
                 continue
             try:
                 key = (source["owner"], source["repo"], source["ref"])
+                if key in refused:  # asked once already this time, and GitHub said no
+                    raise refused[key]
                 if key not in listings:
-                    listings[key] = await repo_tree(session, *key, fresh=fresh)
+                    try:
+                        listings[key] = await repo_tree(session, *key, fresh=fresh)
+                    except (aiohttp.ClientError, asyncio.TimeoutError, InstallError) as exc:
+                        refused[key] = exc
+                        raise
                 latest = folder_id(listings[key], source.get("folder", ""))
                 if latest is None:
                     result[name] = {"error": "Its folder is no longer in that repository"}

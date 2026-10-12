@@ -119,6 +119,11 @@ class InstallerTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(InstallError) as caught:
             await Installer(Path(directory) / "plugins").from_github("https://github.com/o/r/tree/main/plugins/counter", github)
         self.assertIn("60 times an hour", str(caught.exception))
+        asked = github.api_calls
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(InstallError):
+            await Installer(Path(directory) / "plugins").from_github("https://github.com/o/r/tree/main/plugins/counter", github)
+        self.assertEqual(github.api_calls, asked)  # not asked again until GitHub's reset
+        installer_module._limited.update(until=0.0, message="")
 
     async def test_a_repository_of_several_plugins_needs_a_folder(self):
         github = FakeGitHub({"plugins/counter": FIXTURE, "plugins/other": FIXTURE})

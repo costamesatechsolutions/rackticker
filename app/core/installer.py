@@ -37,6 +37,7 @@ USER_AGENT = {"User-Agent": "RackTicker plugin installer (+https://github.com/co
 TREE_SECONDS = 600
 DOWNLOADS_AT_ONCE = 6
 _trees = {}
+_limited = {"until": 0.0, "message": ""}  # GitHub said no: don't ask again before it resets
 
 
 class InstallError(ValueError):
@@ -221,10 +222,13 @@ async def check_limits(response):
     if response.status in (403, 429) and (response.headers.get("X-RateLimit-Remaining") == "0"
                                           or response.status == 429):
         reset = response.headers.get("X-RateLimit-Reset")
-        when = ""
+        when, until = "", time.time() + 300
         if reset and reset.isdigit():
-            when = " Try again after " + datetime.fromtimestamp(int(reset)).strftime("%-I:%M %p").lower() + "."
-        raise InstallError("GitHub is limiting how often this network can ask it (60 times an hour)." + when)
+            until = int(reset)
+            when = " Try again after " + datetime.fromtimestamp(until).strftime("%-I:%M %p").lower() + "."
+        message = "GitHub is limiting how often this network can ask it (60 times an hour)." + when
+        _limited.update(until=until, message=message)
+        raise InstallError(message)
     if response.status == 404:
         raise InstallError("GitHub has no such repository, branch or folder")
     response.raise_for_status()
@@ -237,6 +241,10 @@ async def repo_tree(session, owner, repo, ref, fresh=False):
     kept = _trees.get(key)
     if kept and not fresh and time.monotonic() - kept[0] < TREE_SECONDS:
         return kept[1]
+    if time.time() < _limited["until"]:
+        if kept:  # an older listing beats none while GitHub is saying no
+            return kept[1]
+        raise InstallError(_limited["message"])
     async with session.get(f"https://api.github.com/repos/{owner}/{repo}/git/trees/{ref}",
                            params={"recursive": "1"}, headers=USER_AGENT) as response:
         if response.status in (404, 422):

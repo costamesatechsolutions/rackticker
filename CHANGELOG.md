@@ -4,6 +4,8 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.9.0 - 2026-10-12
+
 - **A simpler control page.** Three tabs instead of four, along the bottom on a phone so none
   is hidden off the edge. Display is the live panel plus one list of every screen with an
   on/off switch that saves by itself: no playlist to build. Tap a screen, or the settings

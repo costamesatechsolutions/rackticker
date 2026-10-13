@@ -168,6 +168,19 @@ class InstallerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(manager.installed["older"].source()["tree"], current)  # remembered from now on
             plugins_api._updates.update(at=0.0, data=None)
 
+    def test_a_plugin_says_where_it_is_listed(self):
+        from app.core.manifest import read_manifest
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / "counter"
+            shutil.copytree(FIXTURE, folder, ignore=shutil.ignore_patterns("__pycache__"))
+            raw = json.loads((folder / "plugin.json").read_text())
+            for given, listed in (("space", "space"), ("nonsense", None), (None, None)):
+                (folder / "plugin.json").write_text(json.dumps({**raw, "category": given}))
+                self.assertEqual(read_manifest(folder).summary()["category"], listed)
+            self.assertIsNone(read_manifest(folder).preview())
+            (folder / "preview.gif").write_bytes(b"GIF89a")
+            self.assertEqual(read_manifest(folder).preview().name, "preview.gif")
+
     def test_archives_cannot_escape(self):
         out = io.BytesIO()
         with zipfile.ZipFile(out, "w") as archive:
@@ -208,6 +221,25 @@ class SandboxTests(unittest.IsolatedAsyncioTestCase):
                 return True
             await asyncio.sleep(.05)
         return False
+
+    async def test_the_store_shows_previews_and_groups(self):
+        from aiohttp.test_utils import TestClient, TestServer
+        index = {"plugins": [{"id": "surf", "name": "Surf", "category": "around",
+                              "url": "https://github.com/o/r/tree/main/plugins/surf"}]}
+
+        async def fake_index():
+            return index
+
+        async with TestClient(TestServer(self.app)) as client:
+            with unittest.mock.patch.object(plugins_api, "community_index", fake_index):
+                body = await (await client.get("/api/plugins/community")).json()
+            self.assertEqual(body["plugins"][0]["preview"],
+                             "https://raw.githubusercontent.com/o/r/main/plugins/surf/preview.gif")
+            self.assertIn("around", body["categories"])
+            shipped = await client.get("/api/plugins/weather/preview")  # a bundled plugin's own animation
+            self.assertEqual(shipped.status, 200)
+            self.assertEqual(shipped.headers["Content-Type"], "image/gif")
+            self.assertEqual((await client.get("/api/plugins/nothing/preview")).status, 404)
 
     async def test_enable_render_crash_restart_disable_remove(self):
         runtime = self.runtime

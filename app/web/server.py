@@ -51,11 +51,11 @@ async def local_api(request, handler):
         log.exception("Configuration or file operation failed")
         return web.json_response({"error": "File operation failed; see the server log"}, status=500)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Cache-Control"] = "no-store"
+    response.headers.setdefault("Cache-Control", "no-store")
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        "connect-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
     return response
 
 

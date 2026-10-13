@@ -28,10 +28,16 @@ Claude or Cursor can build a screen without a panel on the desk.
 ```
 surf_report/
   plugin.json    {"id": "surf_report", "name": "Surf report", "entry": "plugin.py",
-                  "description": "…", "author": "…", "version": "1.0.0", "homepage": "…"}
+                  "description": "…", "author": "…", "version": "1.0.0", "homepage": "…",
+                  "category": "around"}
   plugin.py      defines plugin = Plugin("surf_report", ...)
+  preview.gif    optional: shown with the plugin's settings (python -m app.dev check writes one)
   README.md      optional
 ```
+
+`category` is where the control page lists the screen: `clocks`, `around`
+(around you), `sports`, `news` (news and money), `space`, `games`, `ambient`
+(ambient and art), `rack` or `more` (the default).
 
 `id` is lowercase letters, digits and underscores (48 max) and must equal
 `Plugin.name`. `entry` defaults to `plugin.py`. Other files (images, data) can
@@ -42,7 +48,7 @@ sit alongside; read them relative to `Path(__file__).parent`.
 Put the folder in a public GitHub repository (on its own, or as one folder of a
 repository with several). Anyone can paste the link into **Plugins → Add a
 plugin**: `https://github.com/you/repo` or `https://github.com/you/repo/tree/main/surf_report`.
-RackTicker downloads that exact commit, checks it, loads it once in a sandbox,
+RackTicker downloads just that folder, checks each file against GitHub's fingerprint of it, loads it once in a sandbox,
 and only then replaces any earlier version. **Update** fetches the newest
 commit of the same branch; **Remove** deletes the folder and its settings.
 

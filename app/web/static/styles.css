@@ -292,3 +292,19 @@ footer { color: var(--faint); font-size: 12.5px; text-align: center; margin-top:
 .link-btn:hover { text-decoration: underline; }
 .section-title .btn { font: 500 13.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   text-transform: none; letter-spacing: 0; }
+
+/* --- groups: a heading over each kind of screen --------------------------- */
+.groups { display: grid; gap: 20px; }
+.groups:empty { display: none; }
+.group { display: grid; gap: 8px; min-width: 0; }
+.group-head { display: flex; align-items: baseline; gap: 8px; padding: 0 4px; }
+.group-head h3 { font-size: 15px; font-weight: 650; letter-spacing: -.1px; }
+.group-head .count { font: 11.5px var(--mono); color: var(--faint); }
+.link-btn.small { padding: 4px; font-size: 13.5px; }
+.store-intro { margin: -4px 4px 14px; }
+
+/* the plugin playing, on panel black */
+.shot { background: #050505; border-radius: 8px; overflow: hidden; aspect-ratio: 4 / 1; display: flex;
+  align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px #000; }
+.shot img { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.offer .shot { margin: -4px -6px 6px; }

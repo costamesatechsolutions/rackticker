@@ -4,5 +4,6 @@
   "entry": "rackticker_town.py",
   "description": "Pixel Town: a tiny living city that runs on real-world time.",
   "author": "RackTicker",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "category": "ambient"
 }

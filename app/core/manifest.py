@@ -20,6 +20,11 @@ import re
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 ENTRY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}\.py$")
 MANIFEST = "plugin.json"
+# Where a screen is listed on the control page, in this order. A plugin names one
+# with "category" in plugin.json; anything else is listed under "more".
+CATEGORIES = {"clocks": "Clocks", "around": "Around you", "sports": "Sports", "news": "News and money",
+              "space": "Space", "games": "Games", "ambient": "Ambient and art", "rack": "This rack",
+              "more": "More"}
 # Written by the installer next to an installed plugin's code.
 SOURCE, DESCRIPTION = ".source.json", ".describe.json"
 
@@ -49,9 +54,17 @@ class Manifest:
         return _read(self.path / DESCRIPTION)
 
     def summary(self):
+        category = self.extra.get("category")
         return {"id": self.id, "name": self.name, "description": self.description, "author": self.author,
                 "version": self.version, "homepage": self.homepage, "bundled": self.bundled,
-                "source": self.source()}
+                "category": category if category in CATEGORIES else None, "source": self.source()}
+
+    def preview(self):
+        """The plugin's own picture of itself, if it ships one: an animation first."""
+        for name in ("preview.gif", "preview.png"):
+            if (self.path / name).is_file():
+                return self.path / name
+        return None
 
 
 def _read(path):

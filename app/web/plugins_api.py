@@ -10,12 +10,14 @@ import copy
 import json
 import logging
 from pathlib import Path
+import re
 import time
 
 import aiohttp
 from aiohttp import web
 
 from app.core.config import DEFAULT_CONFIG, MAX_PLAYLIST, MODULES
+from app.core.manifest import CATEGORIES
 from app.core.installer import InstallError, Installer, folder_id, local_tree_id, repo_tree
 
 log = logging.getLogger("plugins")
@@ -28,6 +30,7 @@ COMMUNITY_URL = ("https://raw.githubusercontent.com/costamesatechsolutions/"
 COMMUNITY_LOCAL = Path(__file__).resolve().parents[2] / "community" / "index.json"
 MAX_UPLOAD = 28 * 1024 * 1024  # a 20 MB zip, base64 encoded
 _community = {"at": 0.0, "data": None}
+GITHUB_FOLDER = re.compile(r"^https://github\.com/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)/tree/(?P<ref>[\w.-]+)/(?P<folder>[\w./-]+?)/?$")
 # The control page checks for plugin updates by itself, so answers are kept for a
 # while: GitHub allows 60 unauthenticated requests an hour, one per plugin.
 UPDATES_SECONDS = 1800
@@ -137,12 +140,30 @@ def add_routes(app, runtime_key, store_key):
         return web.json_response({"updated": updated, "failed": failed, **describe_all(runtime, manager)})
 
     async def community(request):
-        return web.json_response(await community_index())
+        index = await community_index()
+        # Each entry's animated preview, straight from GitHub to the browser: the
+        # panel never downloads it, and raw files do not count against GitHub's limit.
+        plugins = []
+        for entry in index.get("plugins", []):
+            match = GITHUB_FOLDER.match(str(entry.get("url", "")))
+            preview = (f"https://raw.githubusercontent.com/{match['owner']}/{match['repo']}/{match['ref']}/"
+                       f"{match['folder']}/preview.gif") if match else None
+            plugins.append({**entry, "preview": preview} if isinstance(entry, dict) else entry)
+        return web.json_response({**index, "plugins": plugins, "categories": CATEGORIES})
+
+    async def preview(request):
+        _, _, manager = parts(request)
+        manifest = manager.bundled.get(request.match_info["id"]) or manager.installed.get(request.match_info["id"])
+        path = manifest.preview() if manifest else None
+        if not path:
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Cache-Control": "max-age=3600"})
 
     app.add_routes([web.get("/api/plugins", listing), web.post("/api/plugins", action),
                     web.post("/api/plugins/install", install_github), web.post("/api/plugins/upload", upload),
                     web.get("/api/plugins/updates", updates), web.post("/api/plugins/update-all", update_all),
-                    web.get("/api/plugins/community", community)])
+                    web.get("/api/plugins/community", community),
+                    web.get("/api/plugins/{id}/preview", preview)])
 
 
 async def known_updates(manager, fresh=False):

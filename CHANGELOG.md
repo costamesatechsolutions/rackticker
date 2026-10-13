@@ -4,6 +4,16 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.10.0 - 2026-10-12
+
+- **Screens are grouped:** Clocks, Around you, Sports, News and money, Space, Games, Ambient
+  and art, This rack. Each group switches all on or all off in one tap, so 40 screens are as
+  easy to manage as 8.
+- **The store shows every plugin playing** before you install it: its own animation, straight
+  from GitHub to your browser (nothing extra for the panel to download). Grouped the same way.
+- A plugin's settings open with its animation at the top.
+- Plugins can say where they belong with `"category"` in plugin.json (see docs/plugins.md).
+
 ## 1.9.0 - 2026-10-12
 
 - **A simpler control page.** Three tabs instead of four, along the bottom on a phone so none

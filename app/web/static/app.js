@@ -492,6 +492,26 @@ function about(module) {
     text.slice(label.length + 2).replace(/^./, (c) => c.toUpperCase()) : text;
 }
 
+// Where each screen is listed. A plugin says so in its plugin.json, a community one in
+// the store's index; the built-in screens are here.
+const CATEGORIES = [['clocks', 'Clocks'], ['around', 'Around you'], ['sports', 'Sports'], ['news', 'News and money'],
+  ['space', 'Space'], ['games', 'Games'], ['ambient', 'Ambient and art'], ['rack', 'This rack'], ['more', 'More']];
+const BUILTIN_CATEGORY = {clock: 'clocks', tixclock: 'clocks', flight: 'around', sports: 'sports', message: 'rack',
+  system_status: 'rack'};
+let community = {plugins: []};
+
+function categoryOf(id) {
+  const known = CATEGORIES.map(([key]) => key);
+  const choices = [(pluginList.plugins || []).find((item) => item.id === id)?.category,
+    (community.plugins || []).find((entry) => entry.id === id)?.category, BUILTIN_CATEGORY[id]];
+  return choices.find((key) => known.includes(key)) || 'more';
+}
+
+function grouped(items, id) {
+  return CATEGORIES.map(([key, label]) => ({key, label, items: items.filter((item) => categoryOf(id(item)) === key)}))
+    .filter((group) => group.items.length);
+}
+
 const entriesFor = (module) => config.playlist.filter((entry) => entry.module === module);
 const isOn = (module) => entriesFor(module).some((entry) => entry.enabled);
 
@@ -517,25 +537,46 @@ function setScreen(module, on) {
   if (!config.playlist.some((entry) => entry.enabled)) throw new Error('Keep at least one screen on');
 }
 
+function screenRow(item) {
+  const on = isOn(item.name);
+  const toggle = h('input', {type: 'checkbox', checked: on, 'aria-label': `Show ${item.label}`,
+    onchange: async () => {
+      // A switch is the whole decision: it saves straight away.
+      try { setScreen(item.name, toggle.checked); await save(); toast(toggle.checked ? `${item.label} is on` : `${item.label} is off`); }
+      catch (error) { config = clone(saved); renderScreens(); throw error; }
+    }});
+  const row = h('div', {class: `item${on ? '' : ' off'}`, 'data-module': item.name},
+    h('button', {type: 'button', class: 'open', onclick: () => openSheet({type: 'screen', module: item.name})},
+      h('span', {class: 'text'}, h('span', {class: 'name'}, item.label, h('span', {class: 'live-tag', text: 'Live'})),
+        h('span', {class: 'desc', text: about(item.name)})),
+      icon(CHEVRON)),
+    h('span', {class: 'switch'}, toggle));
+  row.querySelector('.open svg').classList.add('chev');
+  return row;
+}
+
+async function setGroup(group, on) {
+  try {
+    for (const item of group.items) if (isOn(item.name) !== on) setScreen(item.name, on);
+    await save();
+    toast(`${group.label}: ${on ? 'all on' : 'all off'}`);
+  } catch (error) { config = clone(saved); renderScreens(); throw error; }
+}
+
 function renderScreens() {
   const screens = signScreens();
   $('screens-count').textContent = `${screens.filter((item) => isOn(item.name)).length} of ${screens.length} on`;
-  $('screens').replaceChildren(...screens.map((item) => {
-    const on = isOn(item.name);
-    const toggle = h('input', {type: 'checkbox', checked: on, 'aria-label': `Show ${item.label}`,
-      onchange: async () => {
-        // A switch is the whole decision: it saves straight away.
-        try { setScreen(item.name, toggle.checked); await save(); toast(toggle.checked ? `${item.label} is on` : `${item.label} is off`); }
-        catch (error) { config = clone(saved); renderScreens(); throw error; }
-      }});
-    return h('div', {class: `item${on ? '' : ' off'}`, 'data-module': item.name},
-      h('button', {type: 'button', class: 'open', onclick: () => openSheet({type: 'screen', module: item.name})},
-        h('span', {class: 'text'}, h('span', {class: 'name'}, item.label, h('span', {class: 'live-tag', text: 'Live'})),
-          h('span', {class: 'desc', text: about(item.name)})),
-        icon(CHEVRON)),
-      h('span', {class: 'switch'}, toggle));
+  // One group per kind of screen, each with its own all on / all off.
+  $('screens').replaceChildren(...grouped(screens, (item) => item.name).map((group) => {
+    const count = group.items.filter((item) => isOn(item.name)).length;
+    const all = count === group.items.length;
+    return h('section', {class: 'group'},
+      h('div', {class: 'group-head'}, h('h3', {text: group.label}),
+        h('span', {class: 'count', text: `${count} of ${group.items.length}`}), h('span', {class: 'grow'}),
+        group.items.length > 1 ? h('button', {type: 'button', class: 'link-btn small', text: all ? 'All off' : 'All on',
+          onclick: () => setGroup(group, !all)}) : null),
+      h('div', {class: 'list'}, group.items.map(screenRow)));
   }));
-  for (const svg of $('screens').querySelectorAll('.open svg')) svg.classList.add('chev');
   if (state) onState(state);
 }
 
@@ -587,10 +628,12 @@ function screenSheet({module}) {
   const timing = entries.map((entry, index) => field(entries.length > 1 ? `Time on screen (${index + 1} of ${entries.length})` : 'Time on screen',
     h('div', {class: 'row'}, h('input', {type: 'number', min: 1, max: 3600, value: entry.duration, required: true, 'aria-label': 'Seconds',
       oninput: (event) => { entry.duration = Number(event.target.value); markDirty(); }}), h('span', {class: 'hint', text: 'seconds at least'}))));
+  const shipped = (pluginList.plugins || []).some((item) => item.id === module && item.kind !== 'package');
   return {
     title: label,
     sub: state?.scheduler.module === module ? 'On the panel now' : on ? 'On your sign' : 'Off',
     body: [
+      shipped ? preview(`/api/plugins/${encodeURIComponent(module)}/preview`, label) : null,
       about(module) ? h('p', {class: 'about', text: about(module)}) : null,
       h('div', {class: 'line-field'}, h('span', {class: 'label', text: 'Show on my sign'}), h('span', {class: 'switch'}, toggle)),
       screenSettings(module),
@@ -646,7 +689,7 @@ async function loadPlugins() {
   pluginList = await api('plugins');
   renderPlugins();
   checkUpdates().catch(() => {});
-  const community = await api('plugins/community').catch(() => ({plugins: []}));
+  community = await api('plugins/community').catch(() => community);
   renderCommunity(community.plugins || []);
 }
 
@@ -765,6 +808,7 @@ function pluginSheet({id}) {
     title: item.label || item.name,
     sub: [sourceTag(item) || 'Built in', item.version && `v${item.version}`, item.screen ? 'Screen' : 'Data source'].filter(Boolean).join(' · '),
     body: [
+      item.kind !== 'package' ? preview(`/api/plugins/${encodeURIComponent(id)}/preview`, item.label || item.name) : null,
       item.description ? h('p', {class: 'about', text: item.description}) : null,
       h('div', {class: 'line-field'}, h('span', {class: 'label', text: 'On'}), pluginSwitch(item)),
       status.error ? h('div', {class: 'error-text', text: status.error}) : null,
@@ -781,17 +825,31 @@ function pluginSheet({id}) {
   };
 }
 
+function preview(src, label) {
+  // The plugin playing in its own animation, on a strip of panel black.
+  if (!src) return null;
+  const img = h('img', {src, alt: `${label} on the panel`, loading: 'lazy', decoding: 'async'});
+  img.addEventListener('error', () => img.parentElement?.remove());
+  return h('div', {class: 'shot'}, img);
+}
+
 function renderCommunity(list) {
   // Only what is not here yet: installed ones are already in the list above.
   const have = new Set((pluginList.plugins || []).map((item) => item.id));
   const more = list.filter((entry) => !have.has(entry.id)).sort((a, b) => byName(a.name || a.id, b.name || b.id));
-  $('community').replaceChildren(...(more.length ? more.map((entry) => h('div', {class: 'offer'},
-    h('b', {text: entry.name || entry.id}),
-    h('p', {text: entry.description || ''}),
-    h('div', {class: 'row'}, h('span', {class: 'hint grow', text: entry.author || ''}),
-      h('button', {type: 'button', class: 'btn small primary', text: 'Install', onclick: (event) => install(entry.url, event.currentTarget)})))) :
-    [h('p', {class: 'hint', text: list.length ? 'You have every community plugin.' :
-      'No community plugins listed yet. Yours could be the first: see docs/plugins.md.'})]));
+  if (!more.length) {
+    $('community').replaceChildren(h('p', {class: 'hint', text: list.length ? 'You have every community plugin.' :
+      'No community plugins listed yet. Yours could be the first: see docs/plugins.md.'}));
+    return;
+  }
+  $('community').replaceChildren(...grouped(more, (entry) => entry.id).map((group) => h('section', {class: 'group'},
+    h('div', {class: 'group-head'}, h('h3', {text: group.label}), h('span', {class: 'count', text: String(group.items.length)})),
+    h('div', {class: 'store'}, group.items.map((entry) => h('div', {class: 'offer'},
+      preview(entry.preview, entry.name || entry.id),
+      h('b', {text: entry.name || entry.id}),
+      h('p', {text: entry.description || ''}),
+      h('div', {class: 'row'}, h('span', {class: 'hint grow', text: entry.author || ''}),
+        h('button', {type: 'button', class: 'btn small primary', text: 'Install', onclick: (event) => install(entry.url, event.currentTarget)}))))))));
 }
 
 async function install(url, button) {
@@ -1085,6 +1143,7 @@ async function init() {
   if (needsWelcome()) showWelcome(true);
   // Updates show up by themselves: a number on Plugins, a dot on Settings.
   checkUpdates().catch(() => {});
+  api('plugins/community', 'GET', undefined, 12).then((index) => { community = index; renderScreens(); }).catch(() => {});
   api('software', 'GET', undefined, 12).then((info) => {
     $('settings-badge').hidden = !(info.updatable && info.update_available);
   }).catch(() => {});

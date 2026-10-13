@@ -3,7 +3,8 @@
 You are editing one RackTicker plugin: this folder. Do not edit RackTicker itself.
 
 ## Loop
-1. Edit `plugin.py` (and `plugin.json` for name/description/version).
+1. Edit `plugin.py` (and `plugin.json` for name/description/version, and `category`: where the
+   control page lists it — clocks, around, sports, news, space, games, ambient, rack or more).
 2. Run `python -m app.dev check .` from a RackTicker checkout (or `python -m app.dev check path/to/this/folder`).
 3. **Look at `preview.png`** (and `preview.gif`) before claiming anything works. Fix what you see.
 4. Repeat. `python -m app.dev push . --to HOST:PORT` installs it on a real device.

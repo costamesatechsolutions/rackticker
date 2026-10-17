@@ -4,6 +4,11 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+- Recover from a Broadcom Wi-Fi driver stuck in an SDIO wait while the display is
+  still running. An independent check saves the blocked stacks and requests a
+  reboot after three minutes, limited to once per six hours. Ordinary network or
+  internet outages do not trigger it.
+
 ## 1.10.0 - 2026-10-12
 
 - **Screens are grouped:** Clocks, Around you, Sports, News and money, Space, Games, Ambient

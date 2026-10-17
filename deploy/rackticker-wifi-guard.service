@@ -1,0 +1,9 @@
+[Unit]
+Description=Recover a persistently blocked Broadcom Wi-Fi driver
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/rackticker/wifi-guard.py
+TimeoutStartSec=45
+StateDirectory=rackticker-wifi-guard
+StateDirectoryMode=0700

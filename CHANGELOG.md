@@ -15,6 +15,7 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
   hangs detected during the reboot cooldown.
 - Include the bundled plugins' animated previews in releases so the plugin store
   can display them on a fresh installation.
+- Show GitHub's rate-limit reset time correctly on Windows.
 
 ## 1.10.0 - 2026-10-12
 

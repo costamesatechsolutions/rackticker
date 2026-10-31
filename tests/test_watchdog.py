@@ -12,6 +12,7 @@ class WatchdogTest(unittest.TestCase):
         with mock.patch.object(watchdog, "_address", ""):
             self.assertFalse(watchdog.notify("WATCHDOG=1"))
 
+    @unittest.skipUnless(hasattr(socket, 'AF_UNIX'), 'systemd needs Unix sockets')
     def test_beats_reach_systemd_at_most_every_few_seconds(self):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "notify")

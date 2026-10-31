@@ -225,7 +225,7 @@ async def check_limits(response):
         when, until = "", time.time() + 300
         if reset and reset.isdigit():
             until = int(reset)
-            when = " Try again after " + datetime.fromtimestamp(until).strftime("%-I:%M %p").lower() + "."
+            when = " Try again after " + datetime.fromtimestamp(until).strftime("%I:%M %p").lstrip("0").lower() + "."
         message = "GitHub is limiting how often this network can ask it (60 times an hour)." + when
         _limited.update(until=until, message=message)
         raise InstallError(message)

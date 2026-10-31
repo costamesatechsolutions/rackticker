@@ -122,6 +122,11 @@ RebootWatchdogSec=2min'
 fi
 printf 'kernel.panic = 10\n' > /etc/sysctl.d/90-rackticker.conf
 sysctl -q -w kernel.panic=10 2>/dev/null || true
+# RebootWatchdogSec only covers the final shutdown phase. Bound the earlier
+# service-stop phase too: a blocked SDIO task cannot be killed and used to add
+# twelve minutes of stop timeouts before that watchdog was even armed.
+install -D -m 0644 "$root/staging/deploy/rackticker-reboot.conf" \
+  /etc/systemd/system/reboot.target.d/rackticker.conf
 # Panel tuning belongs to the owner: installed once, never overwritten.
 if [[ ! -f /etc/rackticker/matrix.conf ]]; then
   install -D -m 0644 "$root/staging/deploy/matrix.conf" /etc/rackticker/matrix.conf
@@ -139,6 +144,9 @@ healthy() {
 }
 
 switch_in() {  # $1: release folder to make current; units come from it
+  if [[ -f "$1/deploy/rackticker-wifi-guard.py" ]]; then
+    install -D -m 0644 "$1/deploy/rackticker-wifi-guard.py" /usr/local/lib/rackticker/wifi-guard.py
+  fi
   for unit in "$1"/deploy/*.service "$1"/deploy/*.path "$1"/deploy/*.timer; do
     [[ -f "$unit" ]] && install -m 0644 "$unit" /etc/systemd/system/
   done
@@ -147,6 +155,9 @@ switch_in() {  # $1: release folder to make current; units come from it
     rackticker-selfheal.timer rackticker-reset.path rackticker-identity.service rackticker-memory 2>/dev/null || true
   systemctl start rackticker-update.path rackticker-reset.path rackticker-selfheal.timer 2>/dev/null || true
   systemctl restart rackticker-network 2>/dev/null || true   # pick up its new code
+  if [[ -f "$1/deploy/rackticker-wifi-guard.timer" ]]; then
+    systemctl enable --now rackticker-wifi-guard.timer
+  fi
   systemctl start rackticker-memory 2>/dev/null || true       # compressed swap, if this kernel has it
 }
 

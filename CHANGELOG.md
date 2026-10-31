@@ -13,6 +13,8 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 - Bound reboot shutdown to two minutes when blocked kernel tasks prevent services
   from stopping. Keep diagnostics for the last twelve Wi-Fi incidents, including
   hangs detected during the reboot cooldown.
+- Include the bundled plugins' animated previews in releases so the plugin store
+  can display them on a fresh installation.
 
 ## 1.10.0 - 2026-10-12
 

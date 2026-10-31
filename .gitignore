@@ -13,4 +13,6 @@ dist/
 # Renders written by python -m app.dev check
 preview.png
 preview.gif
+# Bundled store previews are release assets, not disposable development renders.
+!/plugins/*/preview.gif
 NEXT.md

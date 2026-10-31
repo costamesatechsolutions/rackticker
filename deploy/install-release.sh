@@ -122,6 +122,11 @@ RebootWatchdogSec=2min'
 fi
 printf 'kernel.panic = 10\n' > /etc/sysctl.d/90-rackticker.conf
 sysctl -q -w kernel.panic=10 2>/dev/null || true
+# RebootWatchdogSec only covers the final shutdown phase. Bound the earlier
+# service-stop phase too: a blocked SDIO task cannot be killed and used to add
+# twelve minutes of stop timeouts before that watchdog was even armed.
+install -D -m 0644 "$root/staging/deploy/rackticker-reboot.conf" \
+  /etc/systemd/system/reboot.target.d/rackticker.conf
 # Panel tuning belongs to the owner: installed once, never overwritten.
 if [[ ! -f /etc/rackticker/matrix.conf ]]; then
   install -D -m 0644 "$root/staging/deploy/matrix.conf" /etc/rackticker/matrix.conf

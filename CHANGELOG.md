@@ -4,10 +4,15 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.10.1 - 2026-10-31
+
 - Recover from a Broadcom Wi-Fi driver stuck in an SDIO wait while the display is
   still running. An independent check saves the blocked stacks and requests a
-  reboot after three minutes, limited to once per six hours. Ordinary network or
-  internet outages do not trigger it.
+  reboot after three minutes, limited to once per fifteen minutes. Ordinary
+  network or internet outages do not trigger it.
+- Bound reboot shutdown to two minutes when blocked kernel tasks prevent services
+  from stopping. Keep diagnostics for the last twelve Wi-Fi incidents, including
+  hangs detected during the reboot cooldown.
 
 ## 1.10.0 - 2026-10-12
 

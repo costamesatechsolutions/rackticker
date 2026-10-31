@@ -15,7 +15,8 @@ import time
 
 STATE = Path('/var/lib/rackticker-wifi-guard/state.json')
 HANG_SECONDS = 180
-COOLDOWN_SECONDS = 6 * 3600
+COOLDOWN_SECONDS = 15 * 60
+INCIDENT_LIMIT = 12
 
 
 def blocked_wifi(proc=Path('/proc')):
@@ -63,6 +64,47 @@ def save(path, value):
         os.close(fd)
 
 
+def diagnostics():
+    """Capture local evidence without querying the potentially wedged radio."""
+    result = {}
+    for name, path in {
+        'kernel': '/proc/version', 'cmdline': '/proc/cmdline',
+        'memory': '/proc/meminfo', 'interrupts': '/proc/interrupts',
+        'softirqs': '/proc/softirqs', 'load': '/proc/loadavg',
+        'sdio': '/sys/kernel/debug/mmc1/ios',
+        'temperature': '/sys/class/thermal/thermal_zone0/temp',
+    }.items():
+        try:
+            result[name] = Path(path).read_text()[:32768]
+        except OSError as exc:
+            result[name] = str(exc)
+    try:
+        log = subprocess.run(['journalctl', '-b', '0', '-k',
+                              '--grep=mmc|brcmf|voltage|thrott|thermal|blocked for|Out of memory',
+                              '-n', '150', '--no-pager'], capture_output=True,
+                             text=True, timeout=10, check=False)
+        result['kernel_warnings'] = log.stdout[-65536:]
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result['kernel_warnings'] = str(exc)
+    try:
+        power = subprocess.run(['/usr/bin/vcgencmd', 'get_throttled'],
+                               capture_output=True, text=True, timeout=3, check=False)
+        result['power_throttling'] = power.stdout.strip() or power.stderr.strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result['power_throttling'] = str(exc)
+    return result
+
+
+def record_incident(boot, blocked, wall):
+    # One file per boot preserves earlier incidents when last-failure is replaced.
+    directory = STATE.parent / 'incidents'
+    save(directory / f'{boot}.json', {'time': wall, 'boot': boot,
+                                     'stacks': blocked, 'diagnostics': diagnostics()})
+    for old in sorted(directory.glob('*.json'), key=lambda p: p.stat().st_mtime,
+                      reverse=True)[INCIDENT_LIMIT:]:
+        old.unlink()
+
+
 def main():
     blocked = blocked_wifi()
     if '--check' in sys.argv:
@@ -75,6 +117,14 @@ def main():
     # Invalid state must fail closed, never discard a reboot cooldown.
     boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
     state, reboot = decide(previous, blocked, boot, time.monotonic(), time.time())
+    persistent = any(time.monotonic() - start >= HANG_SECONDS
+                     for start in state['blocked'].values())
+    if persistent and not (STATE.parent / 'incidents' / f'{boot}.json').exists():
+        record_incident(boot, blocked, time.time())
+        print('Persistent Broadcom Wi-Fi hang; diagnostic evidence saved', flush=True)
+    if persistent and not reboot:
+        remaining = max(0, COOLDOWN_SECONDS - (time.time() - state['last_reboot']))
+        print(f'Wi-Fi recovery cooldown: {remaining:.0f} seconds remaining', flush=True)
     if reboot and not Path('/run/rackticker-install/busy').exists():
         state['last_reboot'] = time.time()
         save(STATE.parent / 'last-failure.json', {'time': state['last_reboot'],

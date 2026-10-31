@@ -2,7 +2,7 @@
 Description=Check for a blocked Wi-Fi driver every minute
 
 [Timer]
-OnBootSec=5min
+OnBootSec=1min
 OnUnitActiveSec=1min
 AccuracySec=5s
 

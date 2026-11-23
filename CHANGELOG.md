@@ -4,6 +4,13 @@ All notable changes will be recorded here. RackTicker uses Semantic Versioning.
 
 ## Unreleased
 
+## 1.10.2 - 2026-11-23
+
+- Keep the display off after a restart when it was switched off in Home
+  Assistant or the control page. Save power changes with the configuration,
+  restore the last setting on startup, and apply it before lighting the panel.
+  This fixes power-state loss; it does not repair SD-card errors or Wi-Fi hangs.
+
 ## 1.10.1 - 2026-10-31
 
 - Recover from a Broadcom Wi-Fi driver stuck in an SDIO wait while the display is

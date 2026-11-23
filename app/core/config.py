@@ -22,7 +22,7 @@ DEFAULT_CONFIG = {
     "plugins": {},
     # 30 px/s at 30 fps moves exactly one LED per frame: the smoothest crawl
     # a matrix can show. Other speeds step unevenly by construction.
-    "display": {"brightness": 85, "scroll_speed": 30, "scroll_gap": 32,
+    "display": {"power": True, "brightness": 85, "scroll_speed": 30, "scroll_gap": 32,
                 "transition": "auto", "transition_seconds": 0.5, "fps": 30,
                 # Living-room friendly: dim automatically overnight.
                 "night_mode": False, "night_brightness": 20, "night_start": "23:00", "night_end": "07:00"},
@@ -161,6 +161,7 @@ def validate_config(raw, registry=None):
     if not ha["name"].strip():
         raise ConfigError("Home Assistant device name cannot be empty")
     d, s, m = c["display"], c["simulator"], c["modules"]
+    boolean(d["power"], "display power")
     for key, low, high in (("brightness", 0, 100), ("scroll_speed", 1, 160), ("scroll_gap", 8, 256),
                            ("transition_seconds", .1, 2), ("fps", 5, 30), ("night_brightness", 0, 100)):
         number(d[key], low, high, key)

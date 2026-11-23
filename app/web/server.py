@@ -248,10 +248,10 @@ def create_app(config_path, enabled_plugins=(), registry=None, output="browser",
             raw = {}  # ConfigStore.load reports the problem properly below.
         registry = manager.load(manager.enabled(raw))
     store = ConfigStore(config_path, registry)
-    runtime = Runtime(store.load(), BrowserSink(), registry, manager)
+    runtime = Runtime(store.load(), BrowserSink(), registry, manager, save_config=store.save)
     if output == "hub75":
         matrix = Hub75Sink()
-        matrix.set_brightness(runtime.config["display"]["brightness"])
+        matrix.set_brightness(runtime.effective_brightness())
         runtime.outputs.append(matrix)
     app = web.Application(middlewares=[access.guard, local_api], client_max_size=32 * 1024)
     app[RUNTIME], app[STORE], app[SOCKETS] = runtime, store, set()

@@ -83,6 +83,8 @@ class HomeAssistantTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(.3)
                 self.assertEqual(runtime.sink.brightness, 0)
                 self.assertFalse(runtime.power)
+                self.assertFalse(json.loads(path.read_text())["display"]["power"])
+                self.assertFalse(create_app(path)[RUNTIME].power)
                 self.assertEqual(json.loads(broker.published["rackticker/rackticker/light/state"])["state"], "OFF")
                 self.assertEqual(broker.published["rackticker/rackticker/show/tixclock/state"], "ON")
             finally:

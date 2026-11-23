@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from collections import deque
 import gc
 from dataclasses import replace
@@ -119,8 +120,9 @@ def local_address():
 
 
 class Runtime:
-    def __init__(self, config, sink, registry=None, manager=None):
+    def __init__(self, config, sink, registry=None, manager=None, save_config=None):
         self.config = config
+        self.save_config = save_config
         self.registry = registry or PluginRegistry()
         self.sink = sink
         self.outputs = [sink]
@@ -175,7 +177,7 @@ class Runtime:
         self.last_history_at = 0.0
         self.wall_second = None
         self.wall_now = None
-        self.power = True
+        self.power = self.config["display"]["power"]
         self.set_brightness(self.effective_brightness())
         self.manager = manager
         self.home_assistant = None
@@ -310,7 +312,14 @@ class Runtime:
 
     def set_power(self, on):
         """Off blanks the panel (brightness 0); rendering and data carry on."""
-        self.power = bool(on)
+        on = bool(on)
+        if on != self.power:
+            config = copy.deepcopy(self.config)
+            config["display"]["power"] = on
+            # Save before acknowledging the command; a failed write must not
+            # silently turn a temporary state into a promised persistent one.
+            self.config = self.save_config(config) if self.save_config else config
+        self.power = on
         self.set_brightness(self.effective_brightness())
         self.record("display", "switched on" if on else "switched off")
 
@@ -473,6 +482,7 @@ class Runtime:
 
     def apply_config(self, config):
         self.config = config
+        self.power = config["display"]["power"]
         self.retry_at.clear()       # new settings may be the fix: ask failing providers again now
         for host in self.sandboxes.values():
             host.configure()

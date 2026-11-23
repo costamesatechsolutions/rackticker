@@ -21,6 +21,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_bad_types_ranges_and_unknown_fields(self):
         cases = [[], {"version": True}, {"display": {"brightness": -1}},
+                 {"display": {"power": "off"}},
                  {"display": {"fps": float("nan")}}, {"display": {"brightness": True}},
                  {"display": {"transition": "fade_magic"}}, {"modules": {"clock": {"enabled": "yes"}}},
                  {"simulator": {"mode": "retina"}}, {"playlist": []}, {"wat": 3},

@@ -14,6 +14,17 @@ from app.web.server import create_app, RUNTIME
 
 
 class WebTests(unittest.IsolatedAsyncioTestCase):
+    async def test_power_off_survives_app_restart_and_can_be_switched_on(self):
+        headers = {"X-RackTicker": "1"}
+        response = await self.client.post('/api/control', json={"action": "power", "enabled": False},
+                                          headers=headers)
+        self.assertEqual(response.status, 200)
+        restarted = create_app(self.path)
+        self.assertFalse(restarted[RUNTIME].power)
+        self.assertEqual(restarted[RUNTIME].effective_brightness(), 0)
+        restarted[RUNTIME].set_power(True)
+        self.assertTrue(create_app(self.path)[RUNTIME].power)
+
     async def asyncSetUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.path = Path(self.folder.name) / "config.json"
